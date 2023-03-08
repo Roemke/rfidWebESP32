@@ -60,9 +60,12 @@ void handleOTAEnd() {
 
 //meine Listen
 //StringList msgs(50); //Speichere Nachrichten, gebe Sie auf der Webseite aus, doch keine so gute Idee
-RfidList rfidsNew(8); // maximal 8 neue
+#define RFID_MAX 8
+RfidList rfidsNew(RFID_MAX); // maximal 8 neue
 bool rfidsNewChanged = false;
-RfidList rfidsOk(8); //akzeptierte, sie dürfen öffnen 
+RfidList rfidsOk(RFID_MAX); //akzeptierte, sie dürfen öffnen 
+String newRfidId = "";
+String newRfidOwner = "";
 
 //hatte mal irgendein Beispiel gewählt um zu testen
 //stelle um analog zu https://werner.rothschopf.net/202001_arduino_webserver_post.htm
@@ -70,7 +73,6 @@ RfidList rfidsOk(8); //akzeptierte, sie dürfen öffnen
 
 
 AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
 
 //viele Funktionen anonym, bzw. als Lambda Ausdruck, hier der Rest zum Server-Kram
 void notFound(AsyncWebServerRequest *request) {
@@ -86,7 +88,21 @@ String processor(const String& var)
   }
   return String();
 }
+
+
 //fuer den Websocket
+AsyncWebSocket ws("/ws");
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) 
+{
+    AwsFrameInfo *info = (AwsFrameInfo*)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) 
+    {
+        data[len] = 0; //sollte ein json object als String sein 
+        String s = (char * ) data;
+        Serial.println("Received from client: " + s);
+    }
+}
 void onWSEvent(AsyncWebSocket       *server,  //
              AsyncWebSocketClient *client,  //
              AwsEventType          type,    // the signature of this function is defined
@@ -105,11 +121,33 @@ void onWSEvent(AsyncWebSocket       *server,  //
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
             break;
         case WS_EVT_DATA:
+            handleWebSocketMessage(arg, data, len);
+            break;
         case WS_EVT_PONG:
         case WS_EVT_ERROR:
             break;
      }
 }
+
+void addNewAndNotifyClients() {
+    unsigned int pos = rfidsNew.getDelimiterPos();
+    String remove = "removeFirst:false";
+    if (newRfidId != "")
+    {
+      if (pos == RFID_MAX-1)
+        remove = "removeFirst:true";
+      rfidsNewChanged = rfidsNew.add(newRfidId,"");
+      if (rfidsNewChanged)
+      {
+        Serial.println("Sende Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
+        ws.textAll("Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
+      }
+      newRfidId = "";
+      newRfidOwner = "";
+    }
+}
+
+
 
 void setup() {
   //beginn der seriellen Kommunikation mit 115200 Baud
@@ -150,12 +188,11 @@ void setup() {
     //Formular gesendet
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request)
     {
-      String par = "testEintrag";
+      String par = "testEintrag"; //fuer den testeintrag nicht sinnvoll, den werde ich auch per websocket hinzufuegen muessen statt per post 
       if(request->hasParam(par, true))
       {
-        String value = request->getParam(par, true)->value();
-        rfidsNewChanged = rfidsNew.add(value,"");
-        Serial.println("Found Param "+ par+" with: " + value );
+        newRfidId = request->getParam(par, true)->value();
+        Serial.println("Found Param "+ par+" with: " + newRfidId );
       }
       Serial.println("All parameters");
       //List all parameters
@@ -190,38 +227,35 @@ void setup() {
 void loop() {
   static String lastRfid = "";
   if (cCounter <=cCounterMax)
-    ArduinoOTA.handle(); //mehr als 5s delay in der loop und der upload wird nicht funktionieren 
+    ArduinoOTA.handle(); //warnhinweis: mehr als 5s delay in der loop und der upload wird nicht funktionien
 
- /*
-  WiFiClient client = server.available();   // Listen for incoming clients
+  ws.cleanupClients(); // aeltesten client heraus werfen, wenn maximum Zahl von clients ueberschritten, 
+                       // manchmal verabschieden sich clients wohl unsauber / gar nicht -> werden wir brutal  
   
-  if (client) {                             // If a new client connects,
-    handleClient(client) ;
+  //folgender Block sollte später nach unten, momentan können rfids über einen post hinzu gefügt werden, später nur durch RFID-Tags wedeln 
+  
+  
+  if(mfrc522.PICC_IsNewCardPresent() &&mfrc522.PICC_ReadCardSerial())
+  {
+    newRfidId = mfrc522.uid.uidByte[0] < 0x10 ? "0" : "";
+    newRfidId.concat(String(mfrc522.uid.uidByte[0], HEX));
+    for (byte i = 1; i < mfrc522.uid.size; i++) 
+    {
+      newRfidId.concat(mfrc522.uid.uidByte[i] < 0x10 ? "-0" : "-");
+      newRfidId.concat(String(mfrc522.uid.uidByte[i], HEX));
+    }
+   
+    //alle Buchstaben in Großbuchstaben umwandeln
+    //newRfidId.toUpperCase();
+  
+    if (!newRfidId.equals(lastRfid)) 
+    {
+      //überschreiben der alten ID mit der neuen
+      lastRfid = newRfidId;
+      Serial.println("gelesene RFID-ID: " + newRfidId);
+    }
   }
-  */
-  if ( !mfrc522.PICC_IsNewCardPresent()) {
-    return;
-  }
-
-  if (!mfrc522.PICC_ReadCardSerial()) {
-    return;
-  }
-
-
-  String newRfidId = mfrc522.uid.uidByte[0] < 0x10 ? "0" : "";
-  newRfidId.concat(String(mfrc522.uid.uidByte[0], HEX));
-  for (byte i = 1; i < mfrc522.uid.size; i++) {
-    newRfidId.concat(mfrc522.uid.uidByte[i] < 0x10 ? "-0" : "-");
-    newRfidId.concat(String(mfrc522.uid.uidByte[i], HEX));
-  }
-
-  //alle Buchstaben in Großbuchstaben umwandeln
-  //newRfidId.toUpperCase();
-
-  if (!newRfidId.equals(lastRfid)) {
-    //überschreiben der alten ID mit der neuen
-    lastRfid = newRfidId;
-    Serial.println("gelesene RFID-ID: " + newRfidId);
-    rfidsNewChanged = rfidsNew.add(newRfidId,"");
-  }
+  
+  addNewAndNotifyClients(); //nee kann auch hier sein, dann kommte es ein wenig später im nächsten durchlauf
+    
 }

@@ -22,15 +22,50 @@ const char index_html[] PROGMEM = R"rawliteral(
     <script>
       var gateway = `ws://${window.location.hostname}/ws`;
       var websocket;
-      window.addEventListener("load", () => 
+      function initWebSocket()
       { 
          websocket = new WebSocket(gateway);
-      });
+         websocket.onopen = () =>
+         {  
+            console.log('Connection opened');
+         } 
+         websocket.onclose = () => 
+         {
+            console.log('Connection closed');
+            setTimeout(initWebSocket, 2000); //wenn stress versuche reconnect - ich glaube das funktioniert nicht sauber
+         }
+         websocket.onmessage = (e) =>
+         {
+            console.log(`Received a notification from ${e.origin}`);
+            console.log(e);
+         }
+      }
+      
+      window.addEventListener("load", () => 
+      {
+        initWebSocket();
+        document.getElementById('bTestEintrag').addEventListener("click",() => 
+        {
+          let rfid = document.getElementById('testEintrag').value; 
+          let owner = document.getElementById('testOwner').value; 
+          websocket.send(JSON.stringify(
+            {
+              'action':'insert',
+              'rfid':rfid,
+              'owner':owner
+            }));
+        });
+      }); 
     </script>
   </head> 
   <body style='font-family:Helvetica, sans-serif'> 
     <h1>Webserver for RFID config</h1>
-    <form method='post' action='/'>Test: <input name='testEintrag' type='text'><button type='submit'>go</button></form>
+    <p>Eintrag zum Test:</p>
+    <form> 
+      <input id='testEintrag' placeholder='RFIDid' type='text'>
+      <input id='testOwner' placeholder='Owner' type='text'>
+      <button type='button' id='bTestEintrag'>go</button>
+    </form>
     <form method='post' action='/' name='rfid'>
     <p>Um neue RFIDs zu lesen bitte vor dem Sensor mit dem Teil wedeln, bevor weitere Aktionen erfolgen, bietet es sich an, nach und nach alle RFID-Tags einzulesen.<br>
     Mehr als 8 RFIDs pro Liste sind nicht möglich, kommt einer mehr, so wird der erste gekickt.</p>

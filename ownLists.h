@@ -138,7 +138,13 @@ class RfidList
     {
       return rfidL->getIndexOf(rfid); 
     }
+ 
+    unsigned int getDelimiterPos() //eins hinter dem letzten Eintrags
+    {
+      return rfidL->getDelimiterPos();
+    }
 
+ 
     String htmlLines(String name)
     {
       String result = "";
