@@ -116,13 +116,16 @@ class RfidList
     }
   
     //nur hinzufuegen, wenn noch nicht da
-    void add(String rfid, String owner)
+    bool add(String rfid, String owner)
     {
+      bool retVal = false;
       if (rfidL->getIndexOf(rfid) == -1)
       {
         rfidL->add(rfid);
-        ownerL->add(owner);    
+        ownerL->add(owner);
+        retVal = true;    
       }
+      return retVal;
     }
     
     void deleteRfid(String rfid)
@@ -145,6 +148,12 @@ class RfidList
         result += "<input type='checkbox' name='cb" + name+i+"'>" 
                   "<input type='text' name='rfid" + name+i+"' value='" +rfidL->strings[i]+"' readonly>"
                   "<input type='text' name='owner" + name+i+"' value='" +ownerL->strings[i]+"'><br>\n";
+        
+        /* schade arrays gehen im Webserver nicht 
+        result += "<input type='checkbox' name='cb"+name+"[]'>" 
+                  "<input type='text' name='rfid"+name+"[]' value='" +rfidL->strings[i]+"' readonly>"
+                  "<input type='text' name='owner"+name +"[]' value='" +ownerL->strings[i]+"'><br>\n";
+        */
       }
       return result; 
     }        
