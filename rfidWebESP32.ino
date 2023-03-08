@@ -4,7 +4,8 @@
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
-
+#include <AsyncTCP.h>
+#include <ESPAsyncWebSrv.h>
 #include "credentials.h"
 #include "ownLists.h"
 /*
@@ -53,7 +54,7 @@ void handleOTAEnd() {
 
 //webserver - ich vermute hier gibt es eine bessere Variante, habe immer wieder probleme mal geht es mal nicht 
 //vermute, dass ich etwas uebersehe? 
-WiFiServer server(80);
+AsyncWebServer server(80);
 
 
 //StringList msgs(50); //Speichere Nachrichten, gebe Sie auf der Webseite aus, doch keine so gute Idee
@@ -64,6 +65,11 @@ RfidList rfidsOk(8); //akzeptierte, sie dürfen öffnen
 //stelle um analog zu https://werner.rothschopf.net/202001_arduino_webserver_post.htm
 //aber der ist mir zu eingeschränkt, limitierte Menge an Post-Data, er verzichtet auf string wahrscheinlich allein aus Gründen des Speicherplatzes
 
+void notFound(AsyncWebServerRequest *request) {
+    request->send(404, "text/plain", "Not found");
+}
+
+  /*
 void handleClient(WiFiClient & client)
 {
     //String header=""; brauche ich nicht, reagiere nur auf Post 
@@ -146,8 +152,9 @@ void handleClient(WiFiClient & client)
     }//ende while schleife  
     client.stop();
     Serial.println("Stopped client at end of handle Client");
-}
+}*/
 
+/*
 void sendPage(WiFiClient & client)
 {
   // Serial.println("[server] 200 response send");
@@ -180,7 +187,7 @@ void sendPage(WiFiClient & client)
   // The HTTP response ends with another blank line
   client.println();                
 }
-
+*/
 //fehlerhafte Anfrage, Seite nicht da
 void send404(WiFiClient &client)
 {
@@ -201,7 +208,7 @@ void send204(WiFiClient &client)
 void setup() {
   //beginn der seriellen Kommunikation mit 115200 Baud
   Serial.begin(115200);
-  
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
@@ -220,9 +227,41 @@ void setup() {
     ArduinoOTA.onStart(handleOTAStart);
     ArduinoOTA.onProgress(handleOTAProgress);
     ArduinoOTA.onEnd(handleOTAEnd);
+
+    server.onNotFound(notFound);
+  
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+    {
+      String lines = rfidsNew.htmlLines("new");
+      String answer = "<!doctype html>\n"            // the start of the HTTP Body - contains the HTML
+                    "<html lang='en'>\n"
+                    "<head>\n"
+                    "<meta charset='utf-8'>\n"
+                    "<meta name='viewport' content='width=device-width'>\n"
+                    "<title>Webserver RFID</title>\n"
+                    "<style>\n"
+                    " div { \n"
+                    "   border: 1px solid black; \n"
+                    "  }\n"
+                    "</style>\n"
+                    "</head>\n"
+                    "<body style='font-family:Helvetica, sans-serif'>\n" // a minimum style to avoid serifs
+                    "<h1>Webserver for RFID config</h1>\n"
+                    "<form method='post' action='/' name='rfid'>\n"
+                    "<p>gelesene RFIDs</p>\n"
+                    + lines
+                    + "<button type='submit'>Aktualisiere</button>\n"
+                    "</form>\n"
+                    "</body></html>\n";
+      request->send(200,"text/html",answer);
+      Serial.println(lines); 
+    });
+  
     server.begin();
   }
+  
   //eine kleine Pause von 50ms.
+  
   delay(50);
   //begin der SPI Kommunikation
   SPI.begin();
@@ -234,13 +273,14 @@ void loop() {
   static String lastRfid = "";
   if (cCounter <=cCounterMax)
     ArduinoOTA.handle(); //mehr als 5s delay in der loop und der upload wird nicht funktionieren 
- 
+
+ /*
   WiFiClient client = server.available();   // Listen for incoming clients
   
   if (client) {                             // If a new client connects,
     handleClient(client) ;
   }
-  
+  */
   if ( !mfrc522.PICC_IsNewCardPresent()) {
     return;
   }
