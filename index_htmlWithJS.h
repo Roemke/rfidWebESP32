@@ -38,6 +38,9 @@ const char index_html[] PROGMEM = R"rawliteral(
          {
             console.log(`Received a notification from ${e.origin}`);
             console.log(e);
+            console.log(e.data);
+            let data =JSON.parse(e.data);
+            console.log(data);            
          }
       }
       
@@ -47,13 +50,16 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('bTestEintrag').addEventListener("click",() => 
         {
           let rfid = document.getElementById('testEintrag').value; 
-          let owner = document.getElementById('testOwner').value; 
+          let owner = document.getElementById('testOwner').value;
+          websocket.send(rfid+'|'+owner);
+          /* 
           websocket.send(JSON.stringify(
             {
               'action':'insert',
               'rfid':rfid,
               'owner':owner
-            }));
+            })); //Gedanken gecancelt
+          */
         });
       }); 
     </script>

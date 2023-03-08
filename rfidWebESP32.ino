@@ -6,6 +6,8 @@
 #include <ArduinoOTA.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
+//#include <ArduinoJson.h> ich glaube das lohnt nicht - eintragen eines Eintrags geht ohne json
+//bei großen Datenmengen müsste ich mich um den speicherplatz kümmern, ich kann Sie aber per normalem post senden, reicht hier 
 #include "credentials.h"
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
@@ -100,7 +102,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
     {
         data[len] = 0; //sollte ein json object als String sein 
         String s = (char * ) data;
-        Serial.println("Received from client: " + s);
+        unsigned int pos = s.indexOf("|");
+        newRfidId = s.substring(0,pos);
+        newRfidOwner = s.substring(pos+1);
+        Serial.println("Received from client: " + s + " have rfid:" +  newRfidId + " and owner: " + newRfidOwner);
     }
 }
 void onWSEvent(AsyncWebSocket       *server,  //
@@ -131,16 +136,17 @@ void onWSEvent(AsyncWebSocket       *server,  //
 
 void addNewAndNotifyClients() {
     unsigned int pos = rfidsNew.getDelimiterPos();
-    String remove = "removeFirst:false";
+    String remove = "\"removeFirst\":false";
     if (newRfidId != "")
     {
       if (pos == RFID_MAX-1)
-        remove = "removeFirst:true";
+        remove = "\"removeFirst\":true";
       rfidsNewChanged = rfidsNew.add(newRfidId,"");
       if (rfidsNewChanged)
       {
         Serial.println("Sende Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
-        ws.textAll("Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
+        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+"}");//baue mein json objekt selbst, na gut, doch ein wenig laestig
+        //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
       }
       newRfidId = "";
       newRfidOwner = "";
