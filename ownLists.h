@@ -1,3 +1,6 @@
+#include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema sein
+
+
 class RfidList; //forward
 class StringList {
   private: 
@@ -5,16 +8,25 @@ class StringList {
     unsigned int max;
     String *strings; //nie gedanken darueber gemacht String scheint eine Klasse fuer Arduino zu sein
     unsigned int pos=0; //hinter letztem Eintrag
-
+    char * fileName = NULL; //wird der char * als Literal übergeben, ist er im Flash und im RAM - wie lange ist er da?
+                           //ah ja, string literale sind automatisch statisch - daher vermutlich auch das speichern im Ram und im Flash
+                           //dennoch zur sicherheit kopie
   public:
-    StringList(unsigned int max)
+    StringList(unsigned int max, const char * fileName = "")
     {
       this->max = max;
+      unsigned len = strlen(fileName);
+      if (len)
+      {
+        this->fileName = new char[len+1];
+        strcpy(this->fileName,fileName);
+      }    
       strings = new String[max];
     }
     ~StringList()
     {
       delete[] strings;
+      delete [] fileName; //delete on Null should be safe
     }
 
     unsigned int getDelimiterPos() //eins hinter dem letzten Eintrags
@@ -74,7 +86,6 @@ class StringList {
       }
       return index;
     }
-
     void deleteAt(int index)
     {
       if (index > -1 && index < max-1)
@@ -93,50 +104,103 @@ class StringList {
       return index;
     }
 
+    //toCheck: muss erst gemounted werden? - denke nicht
+    bool loadFromFile()
+    {
+      bool ret = true;
+      if (fileName !="")
+      {
+         File dataFile = LittleFS.open(fileName, "r");
+         int i=0; 
+         if (dataFile)
+         {
+            while (dataFile.available())
+            {
+               strings[i++] = dataFile.readStringUntil('\n'); 
+            }
+            pos = i;
+            dataFile.close();
+         }
+         else
+          ret = false;
+      }
+      return ret;
+    }
+    //Die Strings einfach der Reihe nach heraus 
+    bool saveToFile()
+    {
+      bool ret = true;
+      //Serial.println(String("schreibe in ") +fileName);
+      if (fileName !="")
+      {
+         File dataFile = LittleFS.open(fileName, "w");
+         if (dataFile)
+         {
+          for (int i = 0; i < pos ; ++i)
+            dataFile.println(strings[i]); //scheint er so zu nehmen
+          dataFile.close();
+         }
+         else 
+          ret = false;
+      }
+      return ret;      
+    }
 };
 
+//verwende zwei Dateien, dann kann ich die speicherung der Listen verwenden
 class RfidList 
 {
   private:
     unsigned int max;
-    StringList *rfidL; //alternativ template klasse
-    StringList *ownerL;
-  
+    StringList *rfidL;
   public: 
-    RfidList(int max)
+    RfidList(int max, const char *fileName = "")
     {
+      
       this->max = max;
-      rfidL = new StringList(max);
-      ownerL = new StringList(max);
+      rfidL = new StringList(max,fileName); 
     }
     ~RfidList()
     {
       delete rfidL;
-      delete ownerL;
     }
-  
+
+    int getIndexOfRfid(String rfid)
+    {
+      int index = -1;
+      int pos = rfidL->getDelimiterPos();
+      for (int i = 0 ; i < pos ; ++i)
+      {
+        int pBar = (rfidL->strings)[i].indexOf('|');
+        String lrfid = (rfidL->strings)[i].substring(0,pBar);
+        if (lrfid == rfid)
+        {
+            index = i;
+            break;
+        }
+      }
+      return index;
+    }  
     //nur hinzufuegen, wenn noch nicht da
     bool add(String rfid, String owner)
     {
       bool retVal = false;
-      if (rfidL->getIndexOf(rfid) == -1)
+      if (getIndexOfRfid(rfid) == -1)
       {
-        rfidL->add(rfid);
-        ownerL->add(owner);
+        rfidL->add(rfid+'|' + owner);
         retVal = true;    
       }
       return retVal;
     }
     
-    void deleteRfid(String rfid)
+    void deleteRfid(String rfid,String owner)
     {
-      int index = rfidL->deleteEntry(rfid);
-      ownerL->deleteAt(index);
+      int index = rfidL->deleteEntry(rfid+'|' + owner);      
     }
 
-    int getIndexOf(String rfid)
+    int getIndexOf(String rfid,String owner)
     {
-      return rfidL->getIndexOf(rfid); 
+      return rfidL->getIndexOf(rfid+'|'+owner); 
     }
  
     unsigned int getDelimiterPos() //eins hinter dem letzten Eintrags
@@ -145,16 +209,23 @@ class RfidList
     }
 
  
-    String htmlLines(String name)
+    String htmlLines(String bText)
     {
       String result = "";
-      int pos = rfidL->getDelimiterPos();
+      int pos = rfidL->getDelimiterPos();      
       for (unsigned int i = 0 ; i < pos; ++i)
       {
-        result += "<input type='checkbox' name='cb" + name+i+"'>" 
-                  "<input type='text' name='rfid" + name+i+"' value='" +rfidL->strings[i]+"' readonly>"
-                  "<input type='text' name='owner" + name+i+"' value='" +ownerL->strings[i]+"'><br>\n";
-        
+        String &s = rfidL->strings[i];
+        int p = s.indexOf('|');
+        String rfid = s.substring(0,p);
+        String owner = s.substring(p+1); 
+        /*
+        result += "<li><input type='checkbox' name='cb" + name+i+"'>" 
+                  "<input type='text' name='rfid" + name+i+"' value='" +rfid+"' readonly>"
+                  "<input type='text' name='owner" + name+i+"' value='" +owner+"'></li>\n";
+        */
+        result += "<li><button type='button'>" + bText + "</button><input type='text 'value='" +rfid+ "' readonly>"
+                  "<input type='text' value='" +owner+ "'></li>\n";
         /* schade arrays gehen im Webserver nicht 
         result += "<input type='checkbox' name='cb"+name+"[]'>" 
                   "<input type='text' name='rfid"+name+"[]' value='" +rfidL->strings[i]+"' readonly>"
@@ -162,5 +233,22 @@ class RfidList
         */
       }
       return result; 
-    }        
+    }
+
+    void serialPrint()
+    {
+      rfidL->serialPrint();
+    }
+
+    bool loadFromFile()
+    {
+        bool rfid = rfidL->loadFromFile();
+        return rfid;
+    }
+
+    bool saveToFile()
+    {
+        bool rfid = rfidL->saveToFile();
+        return rfid;
+    }
 };

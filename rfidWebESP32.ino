@@ -7,7 +7,8 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
 //#include <ArduinoJson.h> ich glaube das lohnt nicht - eintragen eines Eintrags geht ohne json
-//bei großen Datenmengen müsste ich mich um den speicherplatz kümmern, ich kann Sie aber per normalem post senden, reicht hier 
+//bei großen Datenmengen müsste ich mich um den speicherplatz kümmern, nein, verwende das nicht, 
+//kenne ArduinoJson zu schlecht 
 #include "credentials.h"
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
@@ -63,9 +64,9 @@ void handleOTAEnd() {
 //meine Listen
 //StringList msgs(50); //Speichere Nachrichten, gebe Sie auf der Webseite aus, doch keine so gute Idee
 #define RFID_MAX 8
-RfidList rfidsNew(RFID_MAX); // maximal 8 neue
+RfidList rfidsNew(RFID_MAX); // maximal 8 neue, brauche keine Dateinamen
 bool rfidsNewChanged = false;
-RfidList rfidsOk(RFID_MAX); //akzeptierte, sie dürfen öffnen 
+RfidList rfidsOk(RFID_MAX,"/rfidsOk.dat"); //zum test den gleichen Filenamen 
 String newRfidId = "";
 String newRfidOwner = "";
 
@@ -85,8 +86,12 @@ String processor(const String& var)
 {
   if(var == "NEW_RFID_LINES")
   {
-    String lines = rfidsNew.htmlLines("new");
+    String lines = rfidsNew.htmlLines("add");
     return lines;
+  }
+  else if (var == "RFID_MAX")
+  {
+    return String(RFID_MAX);
   }
   return String();
 }
@@ -139,14 +144,16 @@ void addNewAndNotifyClients() {
     String remove = "\"removeFirst\":false";
     if (newRfidId != "")
     {
-      if (pos == RFID_MAX-1)
+      if (pos == RFID_MAX)
         remove = "\"removeFirst\":true";
-      rfidsNewChanged = rfidsNew.add(newRfidId,"");
+      rfidsNewChanged = rfidsNew.add(newRfidId,newRfidOwner);
       if (rfidsNewChanged)
       {
         Serial.println("Sende Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
-        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+"}");//baue mein json objekt selbst, na gut, doch ein wenig laestig
+        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+",\"name\":\"new\"}");
+        //baue mein json objekt selbst, na gut, doch ein wenig laestig
         //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
+        //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende
       }
       newRfidId = "";
       newRfidOwner = "";
@@ -154,11 +161,31 @@ void addNewAndNotifyClients() {
 }
 
 
+void mountFileSystem()
+{ // versuchen, ein vorhandenes Dateisystem einzubinden
+  if (!LittleFS.begin(false)) 
+  {
+    Serial.println("LittleFS Mount fehlgeschlagen");
+    Serial.println("Kein Dateisystemsystem gefunden; wird formatiert");
+    // falls es nicht klappt, erneut mit Neu-Formatierung versuchen
+    if (!LittleFS.begin(true)) 
+    {
+      Serial.println("LittleFS Mount fehlgeschlagen");
+      Serial.println("Formatierung nicht möglich");
+      return;
+    } else {
+      Serial.println("Formatierung des Dateisystems erfolgt");
+    }
+  }
+  Serial.println("Informationen zum Dateisystem:");
+  Serial.printf("- Bytes total:   %ld\n", LittleFS.totalBytes());
+  Serial.printf("- Bytes genutzt: %ld\n\n", LittleFS.usedBytes());
+}
 
 void setup() {
   //beginn der seriellen Kommunikation mit 115200 Baud
   Serial.begin(115200);
-
+  mountFileSystem();
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
@@ -191,7 +218,7 @@ void setup() {
     {
       request->send_P(200, "text/html", index_html, processor);      
     });
-    //Formular gesendet
+    //Formular gesendet, klappt prinzipiell
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request)
     {
       String par = "testEintrag"; //fuer den testeintrag nicht sinnvoll, den werde ich auch per websocket hinzufuegen muessen statt per post 
@@ -238,7 +265,7 @@ void loop() {
   ws.cleanupClients(); // aeltesten client heraus werfen, wenn maximum Zahl von clients ueberschritten, 
                        // manchmal verabschieden sich clients wohl unsauber / gar nicht -> werden wir brutal  
   
-  //folgender Block sollte später nach unten, momentan können rfids über einen post hinzu gefügt werden, später nur durch RFID-Tags wedeln 
+  //folgender Block sollte später nach unten, momentan können rfids über einen testeintrag hinzu gefügt werden, später nur durch RFID-Tags wedeln 
   
   
   if(mfrc522.PICC_IsNewCardPresent() &&mfrc522.PICC_ReadCardSerial())
