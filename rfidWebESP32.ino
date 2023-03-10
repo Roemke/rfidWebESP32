@@ -6,9 +6,7 @@
 #include <ArduinoOTA.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
-//#include <ArduinoJson.h> ich glaube das lohnt nicht - eintragen eines Eintrags geht ohne json
-//bei großen Datenmengen müsste ich mich um den speicherplatz kümmern, nein, verwende das nicht, 
-//kenne ArduinoJson zu schlecht 
+#include <ArduinoJson.h>   
 #include "credentials.h"
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
@@ -20,6 +18,11 @@
  * dahinter steckt dann Hristo Gochkov's ESPAsyncWebServer 
  * Der unterstützt auch Websockets und nachdem ich 2014 oder so damit keinen Erfolg hatte (Browserstress), sollte es inzwischen ja gehen 
  * Tutorial: https://m1cr0lab-esp32.github.io/remote-control-with-websocket/
+ * geht sogar gut, stelle großteils darauf um
+ * 
+ * Außerdem: ArduinoJson -> dort ein Link auf HeapFragmentation, hoffe mal das es kein Thema bei den par Strings ist - die sorgen 
+ * für stress, ArduinoJson sorgt jedoch für eine Vermeidung von HeapFragmentation, auch wenn man dynamisch alloziiert. 
+ * auf der WebSite findet sich ein calculator für den Speicher
  */
 
 //in credentials.h
@@ -66,7 +69,7 @@ void handleOTAEnd() {
 #define RFID_MAX 8
 RfidList rfidsNew(RFID_MAX); // maximal 8 neue, brauche keine Dateinamen
 bool rfidsNewChanged = false;
-RfidList rfidsOk(RFID_MAX,"/rfidsOk.dat"); //zum test den gleichen Filenamen 
+RfidList rfidsOk(RFID_MAX,"/rfidsOk.dat"); 
 String newRfidId = "";
 String newRfidOwner = "";
 
@@ -84,12 +87,12 @@ void notFound(AsyncWebServerRequest *request) {
 
 String processor(const String& var)
 {
-  if(var == "NEW_RFID_LINES")
+  /*if(var == "NEW_RFID_LINES")
   {
     String lines = rfidsNew.htmlLines("add");
     return lines;
-  }
-  else if (var == "RFID_MAX")
+  }*/
+  if (var == "RFID_MAX")
   {
     return String(RFID_MAX);
   }
@@ -100,17 +103,104 @@ String processor(const String& var)
 //fuer den Websocket
 AsyncWebSocket ws("/ws");
 
+void wsMessage(char *message)
+{ 
+  const char * begin = "{\"action\":\"message\",\"text\":\"";
+  const char * end = "\"}";
+  char * str = new char[strlen(message)+strlen(begin)+strlen(end)+24];//Puffer +24 statt +1 :-)
+  strcpy(str,begin);
+  strcat(str,message);
+  strcat(str,end);
+  ws.textAll(str);
+  delete [] str;
+}
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) 
 {
-    AwsFrameInfo *info = (AwsFrameInfo*)arg;
+    AwsFrameInfo *info = (AwsFrameInfo*)arg; 
     if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) 
     {
-        data[len] = 0; //sollte ein json object als String sein 
-        String s = (char * ) data;
+        data[len] = 0; //sollte ein json object als String sein        
+        char *cData = (char *)data;
+        //String s = cData; //legt eine Kopie an
+        const int capacity = JSON_OBJECT_SIZE(3)+8*JSON_OBJECT_SIZE(2)+JSON_ARRAY_SIZE(8); //
+        //bisher ein Objekt mit 3 membern und 8 Objekte mit 2 membern (die authorisierten rfids, maximal 8), aber das ist ein Array mit 8 Objekten, 
+        //lieber auf Nr sicher gehen
+        StaticJsonDocument<capacity> doc;
+        DeserializationError err = deserializeJson(doc, cData); //damit veraendert das JSON-Objekt den Speicher cData
+        if (err) //faengt auch Probleme beim Speicherplatz ab. 
+        {
+          Serial.print(F("deserializeJson() failed with code "));
+          Serial.println(err.f_str());
+          ws.textAll("Fehler beim Derialisieren");//erhalte die Nachricht, javascript hat dann natuerlich einen json-error, das ist ok, dann sieht man es :-)
+          ws.textAll(err.f_str());
+        }
+        else
+        {
+          if(strcmp(doc["action"],"insert") == 0)
+          {
+            newRfidId = doc["rfid"].as<String>();
+            newRfidOwner = doc["owner"].as<String>();
+            wsMessage("neues RFID hinzugefuegt, nicht authorisiert"); 
+          }
+          else if(strcmp(doc["action"],"clearNew") == 0)
+          {
+            rfidsNew.clear();
+            ws.textAll("{\"action\":\"clearNew\"}");
+            wsMessage("Neu gelesene geloescht");
+          }
+          else if (strcmp(doc["action"],"addAuthorized") == 0)
+          {
+            //rfidArray beinhaltet die Daten 
+            //Serial.println("in addAuthorized");
+            //Serial.println("data: " + s); //daten sind da, also hakt es an den naechsten zeilen, einfach nur vertippt 
+            JsonArray arr = doc["rfidArray"].as<JsonArray>();
+            rfidsOk.clear();//leeren 
+            for (JsonVariant value : arr) { //moderne variante eines iterators
+              JsonObject o = value.as<JsonObject>();
+              //serializeJson(o,Serial);
+              String rfid =  (const char *) o["rfid"];
+              String owner = (const char *) o["owner"];
+              rfidsOk.add(rfid,owner);
+            }
+            rfidsOk.saveToFile();
+            if (rfidsOk.getDelimiterPos() > 0)
+              wsMessage("Authorisierte RFIDs hinzugefuegt / entfernt");   
+            else
+              wsMessage("Authorisierte RFIDs entfernt, Liste leer");
+          }
+          else if (strcmp(doc["action"],"sendRfidsOk") == 0)
+          { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
+            StaticJsonDocument<capacity> ans;
+            ans["action"] = "newOkList";
+            JsonArray data = ans.createNestedArray("data");
+            int anzahl = rfidsOk.getDelimiterPos();
+            for (int i = 0; i < anzahl; ++i)
+            {
+              String rfid,owner;
+              rfidsOk.getAt(i,rfid,owner);
+              JsonObject o = data.createNestedObject();
+              o["rfid"]=rfid;
+              o["owner"]=owner;
+            }
+            
+            serializeJson(ans,Serial); //das sieht gut aus
+            wsMessage("Send authorized rfids from Server");
+            int len = measureJson(ans)+16;//statt +1 +16
+            char * buf = new char[len];
+            serializeJson(ans,buf,len);
+            ws.textAll(buf);
+            delete [] buf;
+          }
+        }
+        
+        /*String s = (char * ) data;
         unsigned int pos = s.indexOf("|");
         newRfidId = s.substring(0,pos);
         newRfidOwner = s.substring(pos+1);
-        Serial.println("Received from client: " + s + " have rfid:" +  newRfidId + " and owner: " + newRfidOwner);
+        */
+        //Serial.print("Received from client: ");
+        //Serial.println(s);
+        //Serial.println(" have rfid:" +  newRfidId + " and owner: " + newRfidOwner);
     }
 }
 void onWSEvent(AsyncWebSocket       *server,  //
@@ -139,9 +229,14 @@ void onWSEvent(AsyncWebSocket       *server,  //
      }
 }
 
+
+//wird nur zur liste der neuen hinzugefuegt
 void addNewAndNotifyClients() {
     unsigned int pos = rfidsNew.getDelimiterPos();
     String remove = "\"removeFirst\":false";
+    //const int capacity = JSON_OBJECT_SIZE(3); //zu erweitern, wenn ich die liste uebertrage
+    //bisher ein Objekt mit 3 membern
+    //StaticJsonDocument<capacity> doc;    
     if (newRfidId != "")
     {
       if (pos == RFID_MAX)
@@ -150,10 +245,19 @@ void addNewAndNotifyClients() {
       if (rfidsNewChanged)
       {
         Serial.println("Sende Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
-        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+",\"name\":\"new\"}");
+        /*
+        doc["action"] = "new";
+        doc["rfid"]   = newRfidId.c_str();
+        doc["owner"]   = newRfidOwner.c_str();
+        char buffer[128];
+        int len = serializeJson(doc,buffer); 
+        ws.textAll(buffer,len); //naja, so viel besser ist das nicht 
+        */ 
+        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+",\"action\":\"new\"}");
         //baue mein json objekt selbst, na gut, doch ein wenig laestig
         //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
-        //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende
+        //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
+        wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
       }
       newRfidId = "";
       newRfidOwner = "";
@@ -186,6 +290,8 @@ void setup() {
   //beginn der seriellen Kommunikation mit 115200 Baud
   Serial.begin(115200);
   mountFileSystem();
+  rfidsOk.loadFromFile(); 
+
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
@@ -207,7 +313,7 @@ void setup() {
 
     server.onNotFound(notFound);
     //lustig, ich bin alt,  [] leitet einen Lambda Ausdruck ein, also eine anonyme Funktion
-    //die gabs frueher nicht :-) 
+    //die gabs frueher nicht :-), dafür mehr Lametta
     server.on("/favicon.ico", [](AsyncWebServerRequest *request)
     {
       request->send(204);//no content
@@ -222,7 +328,7 @@ void setup() {
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request)
     {
       String par = "testEintrag"; //fuer den testeintrag nicht sinnvoll, den werde ich auch per websocket hinzufuegen muessen statt per post 
-      if(request->hasParam(par, true))
+      if(request->hasParam(par, true)) //ist per websocket erledigt
       {
         newRfidId = request->getParam(par, true)->value();
         Serial.println("Found Param "+ par+" with: " + newRfidId );
@@ -278,8 +384,6 @@ void loop() {
       newRfidId.concat(String(mfrc522.uid.uidByte[i], HEX));
     }
    
-    //alle Buchstaben in Großbuchstaben umwandeln
-    //newRfidId.toUpperCase();
   
     if (!newRfidId.equals(lastRfid)) 
     {
@@ -289,6 +393,6 @@ void loop() {
     }
   }
   
-  addNewAndNotifyClients(); //nee kann auch hier sein, dann kommte es ein wenig später im nächsten durchlauf
+  addNewAndNotifyClients(); //wenn neu, dann hinzufügen
     
 }

@@ -164,7 +164,10 @@ class RfidList
     {
       delete rfidL;
     }
-
+    void clear()
+    {
+      rfidL->clear();
+    }
     int getIndexOfRfid(String rfid)
     {
       int index = -1;
@@ -181,6 +184,13 @@ class RfidList
       }
       return index;
     }  
+    void getAt(int index, String &rfid, String &owner)
+    {
+        String &s = rfidL->strings[index];
+        int p = s.indexOf('|');
+        rfid = s.substring(0,p);
+        owner = s.substring(p+1);
+    }
     //nur hinzufuegen, wenn noch nicht da
     bool add(String rfid, String owner)
     {
@@ -209,7 +219,7 @@ class RfidList
     }
 
  
-    String htmlLines(String bText)
+    String htmlLines(String bText)//werde ich nicht mehr brauchen 
     {
       String result = "";
       int pos = rfidL->getDelimiterPos();      
