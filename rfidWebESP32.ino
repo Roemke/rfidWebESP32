@@ -6,6 +6,7 @@
 #include <ArduinoOTA.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
+#include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema seinlitt
 #include <ArduinoJson.h>   
 #include "credentials.h"
 #include "ownLists.h"
@@ -46,10 +47,20 @@ int cCounter = 0;
 const int cCounterMax = 20;
 const long timeoutTime = 2000;
 
+AsyncWebServer server(80);
+//fuer den Websocket
+AsyncWebSocket ws("/ws");
+unsigned long keepWebServerAlive = 240000; //milliseconds to keep Server online, 240 seconds 
+unsigned long startTime;
+
 //ein wenig was zum OTA Update, nicht getestet, keine Ahnung, ob das mit dem Asynchronous Webserver funktioniert
 void handleOTAStart() {
   // Perform any necessary tasks before the update begins, such as saving data or closing file handles
   Serial.println("OTA update starting...");
+  LittleFS.end();
+  ws.enable(false);
+  wsMessage("OTA Update Started");
+  ws.closeAll();
 }
 void handleOTAProgress(unsigned int progress, unsigned int total) {
   // Display the progress of the update to the user
@@ -66,7 +77,7 @@ void handleOTAEnd() {
 
 //meine Listen
 //StringList msgs(50); //Speichere Nachrichten, gebe Sie auf der Webseite aus, doch keine so gute Idee
-#define RFID_MAX 8
+#define RFID_MAX 3
 RfidList rfidsNew(RFID_MAX); // maximal 8 neue, brauche keine Dateinamen
 bool rfidsNewChanged = false;
 RfidList rfidsOk(RFID_MAX,"/rfidsOk.dat"); 
@@ -77,8 +88,6 @@ String newRfidOwner = "";
 //stelle um analog zu https://werner.rothschopf.net/202001_arduino_webserver_post.htm
 //aber der ist mir zu eingeschränkt, limitierte Menge an Post-Data, er verzichtet auf string, außerdem fehler - irdendwo denke ich falsch, wähle den asynchronous Webserver
 
-
-AsyncWebServer server(80);
 
 //viele Funktionen anonym, bzw. als Lambda Ausdruck, hier der Rest zum Server-Kram
 void notFound(AsyncWebServerRequest *request) {
@@ -100,8 +109,6 @@ String processor(const String& var)
 }
 
 
-//fuer den Websocket
-AsyncWebSocket ws("/ws");
 
 void wsMessage(char *message)
 { 
@@ -125,6 +132,11 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         const int capacity = JSON_OBJECT_SIZE(3)+8*JSON_OBJECT_SIZE(2)+JSON_ARRAY_SIZE(8); //
         //bisher ein Objekt mit 3 membern und 8 Objekte mit 2 membern (die authorisierten rfids, maximal 8), aber das ist ein Array mit 8 Objekten, 
         //lieber auf Nr sicher gehen
+        //Serial.println("Rfids1");
+        //rfidsOk.serialPrint();
+        //Serial.println("new");
+        //rfidsNew.serialPrint();
+        
         StaticJsonDocument<capacity> doc;
         DeserializationError err = deserializeJson(doc, cData); //damit veraendert das JSON-Objekt den Speicher cData
         if (err) //faengt auch Probleme beim Speicherplatz ab. 
@@ -136,11 +148,20 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         }
         else
         {
-          if(strcmp(doc["action"],"insert") == 0)
+          if(strcmp(doc["action"],"addNew") == 0) //neuer Eintrag vom WebInterface  in die liste der neuen (zum Testen)
           {
             newRfidId = doc["rfid"].as<String>();
             newRfidOwner = doc["owner"].as<String>();
-            wsMessage("neues RFID hinzugefuegt, nicht authorisiert"); 
+            wsMessage("neues RFID hinzugefuegt, nicht authorisiert");
+            //hier ist keine Message noetig, sie wird von addNewAndNotifyClients gesendet, neue Rfids können aktuell auf 
+            //zwei Wegen dazu kommen, Leser und WebSocket 
+          }
+          else if (strcmp(doc["action"],"keepWebServerAlive")==0) 
+          {
+            startTime = millis();
+            keepWebServerAlive = (unsigned long ) doc["time"]; //0 fuer ewig
+            Serial.print("Zeit : ");
+            Serial.println((unsigned long ) doc["time"]);
           }
           else if(strcmp(doc["action"],"clearNew") == 0)
           {
@@ -148,8 +169,33 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             ws.textAll("{\"action\":\"clearNew\"}");
             wsMessage("Neu gelesene geloescht");
           }
-          else if (strcmp(doc["action"],"addAuthorized") == 0)
+          else if (strcmp(doc["action"],"addAuthorized") ==0)
           {
+              String rfid =  (const char *) doc["rfid"];
+              String owner = (const char *) doc["owner"]; 
+              bool result = rfidsOk.add(rfid,owner);
+              if (result)
+              {
+                rfidsNew.remove(rfid);
+                rfidsOk.saveToFile();
+                ws.textAll("{\"action\":\"addAuthorized\",\"rfid\":\""+rfid +"\",\"owner\":\""+owner+"\"}");
+                //da er nur von new kommen kann, impliziert das das löschen in der New-Liste
+              }
+              else 
+                wsMessage("Versuch zu viele in die authorized Liste einzufuegen oder nicht eindeutig, abgelehnt");
+          }
+          else if (strcmp(doc["action"],"removeAuthorized") ==0)
+          {
+              String rfid =  (const char *) doc["rfid"];
+              String owner = (const char *) doc["owner"];               
+              ws.textAll("{\"action\":\"removeAuthorized\",\"rfid\":\""+rfid +"\",\"owner\":\""+owner+"\"}");
+              rfidsOk.remove(rfid);
+              rfidsOk.saveToFile();
+              newRfidId = rfid;
+              newRfidOwner = owner; //damit sorgt addNewAndNotifyClients fuer das hinzufuegen zur newList 
+          }
+          else if (strcmp(doc["action"],"addAuthorizedAll") == 0) //alle uebertragen, wird nicht mehr verwendet
+          {//es fehlt auch eine Nachricht an alle Clients
             //rfidArray beinhaltet die Daten 
             //Serial.println("in addAuthorized");
             //Serial.println("data: " + s); //daten sind da, also hakt es an den naechsten zeilen, einfach nur vertippt 
@@ -168,7 +214,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             else
               wsMessage("Authorisierte RFIDs entfernt, Liste leer");
           }
-          else if (strcmp(doc["action"],"sendRfidsOk") == 0)
+          else if (strcmp(doc["action"],"getRfidsOk") == 0)
           { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
             StaticJsonDocument<capacity> ans;
             ans["action"] = "newOkList";
@@ -182,16 +228,42 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               o["rfid"]=rfid;
               o["owner"]=owner;
             }
-            
-            serializeJson(ans,Serial); //das sieht gut aus
+            //serializeJson(ans,Serial); //das sieht gut aus
             wsMessage("Send authorized rfids from Server");
+            int len = measureJson(ans)+16;//statt +1 +16
+            char * buf = new char[len];
+            serializeJson(ans,buf,len);
+            wsMessage("Send OK List");
+            ws.textAll(buf);
+            delete [] buf;
+          }
+          else if (strcmp(doc["action"],"getRfidsNew") == 0)
+          { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
+            StaticJsonDocument<capacity> ans;
+            ans["action"] = "newNewList";
+            JsonArray data = ans.createNestedArray("data");
+            int anzahl = rfidsNew.getDelimiterPos();
+            for (int i = 0; i < anzahl; ++i)
+            {
+              String rfid,owner;
+              rfidsNew.getAt(i,rfid,owner);
+              JsonObject o = data.createNestedObject();
+              o["rfid"]=rfid;
+              o["owner"]=owner;
+            }            
+            //serializeJson(ans,Serial); //das sieht gut aus
+            wsMessage("Send new rfids from Server");
             int len = measureJson(ans)+16;//statt +1 +16
             char * buf = new char[len];
             serializeJson(ans,buf,len);
             ws.textAll(buf);
             delete [] buf;
-          }
+          }          
         }
+        //Serial.println("Rfids2");
+        //rfidsOk.serialPrint();
+        //Serial.println("new");
+        //rfidsNew.serialPrint();
         
         /*String s = (char * ) data;
         unsigned int pos = s.indexOf("|");
@@ -233,18 +305,24 @@ void onWSEvent(AsyncWebSocket       *server,  //
 //wird nur zur liste der neuen hinzugefuegt
 void addNewAndNotifyClients() {
     unsigned int pos = rfidsNew.getDelimiterPos();
-    String remove = "\"removeFirst\":false";
+    String removeFirst = "\",\"removeFirst\":false}";
     //const int capacity = JSON_OBJECT_SIZE(3); //zu erweitern, wenn ich die liste uebertrage
     //bisher ein Objekt mit 3 membern
     //StaticJsonDocument<capacity> doc;    
-    if (newRfidId != "")
+    if (newRfidId != "" && WiFi.status() == WL_CONNECTED)
     {
-      if (pos == RFID_MAX)
-        remove = "\"removeFirst\":true";
+      //erstes nur entfernen, wenn ein nicht schon vorhandenes hinzugefügt werden 
+      //und wir zu viele haben
+      int found = rfidsNew.getIndexOfRfid(newRfidId);
+      if (pos == RFID_MAX && found == -1)
+      {
+        removeFirst = "\",\"removeFirst\":true}";
+        Serial.println("remove first");
+        rfidsNew.removeAt(0);
+      }
       rfidsNewChanged = rfidsNew.add(newRfidId,newRfidOwner);
       if (rfidsNewChanged)
       {
-        Serial.println("Sende Freundliche Nachricht, es hat sich was getan, neuer Rfid " + newRfidId  + " First: " + remove);
         /*
         doc["action"] = "new";
         doc["rfid"]   = newRfidId.c_str();
@@ -253,15 +331,15 @@ void addNewAndNotifyClients() {
         int len = serializeJson(doc,buffer); 
         ws.textAll(buffer,len); //naja, so viel besser ist das nicht 
         */ 
-        ws.textAll("{\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+"\","+remove+",\"action\":\"new\"}");
+        ws.textAll("{\"action\":\"addNew\",\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+removeFirst);
         //baue mein json objekt selbst, na gut, doch ein wenig laestig
         //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
         //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
         wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
       }
-      newRfidId = "";
-      newRfidOwner = "";
     }
+    newRfidId = "";
+    newRfidOwner = "";
 }
 
 
@@ -300,7 +378,7 @@ void setup() {
     Serial.print(".");
   }
 
-  if (cCounter <= cCounterMax) //wifi connected
+  if (WiFi.status() == WL_CONNECTED) //wifi connected
   {
     Serial.print("Wifi Connected, adress ");
     Serial.println(WiFi.localIP());
@@ -325,6 +403,7 @@ void setup() {
       request->send_P(200, "text/html", index_html, processor);      
     });
     //Formular gesendet, klappt prinzipiell
+    /*
     server.on("/", HTTP_POST, [](AsyncWebServerRequest *request)
     {
       String par = "testEintrag"; //fuer den testeintrag nicht sinnvoll, den werde ich auch per websocket hinzufuegen muessen statt per post 
@@ -348,7 +427,7 @@ void setup() {
       }
       request->send_P(200, "text/html", index_html, processor);      
     });
-    
+    */
     ws.onEvent(onWSEvent);
     server.addHandler(&ws); //WebSocket dazu 
     server.begin();
@@ -361,18 +440,28 @@ void setup() {
   SPI.begin();
   //initialisieren der Kommunikation mit dem RFID Modul
   mfrc522.PCD_Init();
+  startTime = millis();
 }
 
 void loop() {
   static String lastRfid = "";
-  if (cCounter <=cCounterMax)
+  long running = millis()-startTime;
+  if (keepWebServerAlive && running > keepWebServerAlive) //wenn keepWebServerAlive gesetzt und die Laufzeit größer ist, dann herunter fahren
+  {
+      wsMessage("esp says: Zeit abgelaufen, stoppe Server, rfid is running");
+      ws.closeAll();
+      server.end();
+      WiFi.disconnect(true);  // Disconnect from the network
+      WiFi.mode(WIFI_OFF);    // Switch WiFi off
+  }
+  
+  if (WiFi.status() == WL_CONNECTED)
+  {
     ArduinoOTA.handle(); //warnhinweis: mehr als 5s delay in der loop und der upload wird nicht funktionien
 
-  ws.cleanupClients(); // aeltesten client heraus werfen, wenn maximum Zahl von clients ueberschritten, 
+    ws.cleanupClients(); // aeltesten client heraus werfen, wenn maximum Zahl von clients ueberschritten, 
                        // manchmal verabschieden sich clients wohl unsauber / gar nicht -> werden wir brutal  
-  
-  //folgender Block sollte später nach unten, momentan können rfids über einen testeintrag hinzu gefügt werden, später nur durch RFID-Tags wedeln 
-  
+  }  
   
   if(mfrc522.PICC_IsNewCardPresent() &&mfrc522.PICC_ReadCardSerial())
   {

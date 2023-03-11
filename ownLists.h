@@ -1,6 +1,7 @@
 #include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema sein
 
-
+//die listen waren quatsch - ich hätte besser eine Liste von Objekten verwendet - aber jetzt wird die 
+//Zeit langsam eng, daher lasse ich erst mal so
 class RfidList; //forward
 class StringList {
   private: 
@@ -88,7 +89,7 @@ class StringList {
     }
     void deleteAt(int index)
     {
-      if (index > -1 && index < max-1)
+      if (index > -1 && index < max)
       {
         --pos;
         for (int i = index; i < pos;  ++i)
@@ -114,7 +115,7 @@ class StringList {
          int i=0; 
          if (dataFile)
          {
-            while (dataFile.available())
+            while (dataFile.available() && i < max)
             {
                strings[i++] = dataFile.readStringUntil('\n'); 
             }
@@ -147,7 +148,6 @@ class StringList {
     }
 };
 
-//verwende zwei Dateien, dann kann ich die speicherung der Listen verwenden
 class RfidList 
 {
   private:
@@ -191,11 +191,12 @@ class RfidList
         rfid = s.substring(0,p);
         owner = s.substring(p+1);
     }
-    //nur hinzufuegen, wenn noch nicht da
+    //nur hinzufuegen, wenn noch nicht da und liste nicht voll
     bool add(String rfid, String owner)
     {
       bool retVal = false;
-      if (getIndexOfRfid(rfid) == -1)
+      int pos = rfidL->getDelimiterPos();
+      if (getIndexOfRfid(rfid) == -1  && pos < max)
       {
         rfidL->add(rfid+'|' + owner);
         retVal = true;    
@@ -203,9 +204,16 @@ class RfidList
       return retVal;
     }
     
-    void deleteRfid(String rfid,String owner)
+    void remove(String rfid)
     {
-      int index = rfidL->deleteEntry(rfid+'|' + owner);      
+      int index = getIndexOfRfid(rfid);
+      //Serial.println("in rfidlist Remove " + rfid + " at index " +i);
+      rfidL->deleteAt(index);     
+    }
+
+    void removeAt(int index)
+    {
+      rfidL->deleteAt(index);      
     }
 
     int getIndexOf(String rfid,String owner)
