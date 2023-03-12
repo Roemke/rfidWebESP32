@@ -168,7 +168,7 @@ class RfidList
     {
       rfidL->clear();
     }
-    int getIndexOfRfid(String rfid)
+    int indexOfRfid(String rfid)
     {
       int index = -1;
       int pos = rfidL->getDelimiterPos();
@@ -196,7 +196,7 @@ class RfidList
     {
       bool retVal = false;
       int pos = rfidL->getDelimiterPos();
-      if (getIndexOfRfid(rfid) == -1  && pos < max)
+      if (indexOfRfid(rfid) == -1  && pos < max)
       {
         rfidL->add(rfid+'|' + owner);
         retVal = true;    
@@ -206,7 +206,7 @@ class RfidList
     
     void remove(String rfid)
     {
-      int index = getIndexOfRfid(rfid);
+      int index = indexOfRfid(rfid);
       //Serial.println("in rfidlist Remove " + rfid + " at index " +i);
       rfidL->deleteAt(index);     
     }

@@ -1,13 +1,12 @@
-//einbinden der Bibliotheken für das
-//ansteuern des MFRC522 Moduls
-#include <SPI.h>
-#include <MFRC522.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
+#include <AsyncElegantOTA.h>//mist, der braucht den ESPAsyncWebServer, habe mal in der Bibliothek angepasst
 #include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema seinlitt
 #include <ArduinoJson.h>   
+#include <SPI.h>
+#include <MFRC522.h>
 #include "credentials.h"
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
@@ -39,6 +38,8 @@ const char *password = myPASSWORD;
 #define RST_PIN     22
 #define SS_PIN      21
 
+#define RELAIS_PIN 16
+
 //erzeugen einer Objektinstanz
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
@@ -50,34 +51,19 @@ const long timeoutTime = 2000;
 AsyncWebServer server(80);
 //fuer den Websocket
 AsyncWebSocket ws("/ws");
-unsigned long keepWebServerAlive = 240000; //milliseconds to keep Server online, 240 seconds 
+unsigned long keepWebServerAlive = 240000; //milliseconds also 4 Minuten, danach wird wifi abgeschaltet. 
+//in dieser Zeit ein client connect -> der Server bleibt aktiv
 unsigned long startTime;
 
 //ein wenig was zum OTA Update, nicht getestet, keine Ahnung, ob das mit dem Asynchronous Webserver funktioniert
-void handleOTAStart() {
-  // Perform any necessary tasks before the update begins, such as saving data or closing file handles
-  Serial.println("OTA update starting...");
-  LittleFS.end();
-  ws.enable(false);
-  wsMessage("OTA Update Started");
-  ws.closeAll();
-}
-void handleOTAProgress(unsigned int progress, unsigned int total) {
-  // Display the progress of the update to the user
-  Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-}
-void handleOTAEnd() {
-  // Perform any necessary tasks after the update is complete, such as restarting the ESP32
-  Serial.println("\nOTA update complete!");
-  ESP.restart();
-}
+//nein, es geht nicht, es geht mit dem AsyncWebServer einfacher
 
 //---------------------------------------------
 
 
 //meine Listen
 //StringList msgs(50); //Speichere Nachrichten, gebe Sie auf der Webseite aus, doch keine so gute Idee
-#define RFID_MAX 3
+#define RFID_MAX 8
 RfidList rfidsNew(RFID_MAX); // maximal 8 neue, brauche keine Dateinamen
 bool rfidsNewChanged = false;
 RfidList rfidsOk(RFID_MAX,"/rfidsOk.dat"); 
@@ -101,11 +87,16 @@ String processor(const String& var)
     String lines = rfidsNew.htmlLines("add");
     return lines;
   }*/
+  String result = "";
   if (var == "RFID_MAX")
   {
-    return String(RFID_MAX);
+    result = String(RFID_MAX);
   }
-  return String();
+  else if (var == "UPDATE_LINK")
+  { 
+    result = "<a href=\"http://" + WiFi.localIP().toString() +"/update\"> Update </a>";
+  }
+  return result;
 }
 
 
@@ -129,8 +120,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         data[len] = 0; //sollte ein json object als String sein        
         char *cData = (char *)data;
         //String s = cData; //legt eine Kopie an
-        const int capacity = JSON_OBJECT_SIZE(3)+8*JSON_OBJECT_SIZE(2)+JSON_ARRAY_SIZE(8); //
-        //bisher ein Objekt mit 3 membern und 8 Objekte mit 2 membern (die authorisierten rfids, maximal 8), aber das ist ein Array mit 8 Objekten, 
+        const int capacity = JSON_OBJECT_SIZE(3)+RFID_MAX*JSON_OBJECT_SIZE(2)+JSON_ARRAY_SIZE(RFID_MAX); //
+        //bisher ein Objekt mit 3 membern und RFID_MAX Objekte mit 2 membern (die authorisierten rfids, maximal RFID_MAX), aber das ist ein Array mit RFID_MAX Objekten, 
         //lieber auf Nr sicher gehen
         //Serial.println("Rfids1");
         //rfidsOk.serialPrint();
@@ -153,7 +144,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             newRfidId = doc["rfid"].as<String>();
             newRfidOwner = doc["owner"].as<String>();
             wsMessage("neues RFID hinzugefuegt, nicht authorisiert");
-            //hier ist keine Message noetig, sie wird von addNewAndNotifyClients gesendet, neue Rfids können aktuell auf 
+            //hier ist keine Message noetig, sie wird von handleNewRFID gesendet, neue Rfids können aktuell auf 
             //zwei Wegen dazu kommen, Leser und WebSocket 
           }
           else if (strcmp(doc["action"],"keepWebServerAlive")==0) 
@@ -192,8 +183,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               rfidsOk.remove(rfid);
               rfidsOk.saveToFile();
               newRfidId = rfid;
-              newRfidOwner = owner; //damit sorgt addNewAndNotifyClients fuer das hinzufuegen zur newList 
+              newRfidOwner = owner; //damit sorgt handleNewRFID fuer das hinzufuegen zur newList 
           }
+          /*
           else if (strcmp(doc["action"],"addAuthorizedAll") == 0) //alle uebertragen, wird nicht mehr verwendet
           {//es fehlt auch eine Nachricht an alle Clients
             //rfidArray beinhaltet die Daten 
@@ -213,7 +205,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               wsMessage("Authorisierte RFIDs hinzugefuegt / entfernt");   
             else
               wsMessage("Authorisierte RFIDs entfernt, Liste leer");
-          }
+          }*/
           else if (strcmp(doc["action"],"getRfidsOk") == 0)
           { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
             StaticJsonDocument<capacity> ans;
@@ -302,47 +294,6 @@ void onWSEvent(AsyncWebSocket       *server,  //
 }
 
 
-//wird nur zur liste der neuen hinzugefuegt
-void addNewAndNotifyClients() {
-    unsigned int pos = rfidsNew.getDelimiterPos();
-    String removeFirst = "\",\"removeFirst\":false}";
-    //const int capacity = JSON_OBJECT_SIZE(3); //zu erweitern, wenn ich die liste uebertrage
-    //bisher ein Objekt mit 3 membern
-    //StaticJsonDocument<capacity> doc;    
-    if (newRfidId != "" && WiFi.status() == WL_CONNECTED)
-    {
-      //erstes nur entfernen, wenn ein nicht schon vorhandenes hinzugefügt werden 
-      //und wir zu viele haben
-      int found = rfidsNew.getIndexOfRfid(newRfidId);
-      if (pos == RFID_MAX && found == -1)
-      {
-        removeFirst = "\",\"removeFirst\":true}";
-        Serial.println("remove first");
-        rfidsNew.removeAt(0);
-      }
-      rfidsNewChanged = rfidsNew.add(newRfidId,newRfidOwner);
-      if (rfidsNewChanged)
-      {
-        /*
-        doc["action"] = "new";
-        doc["rfid"]   = newRfidId.c_str();
-        doc["owner"]   = newRfidOwner.c_str();
-        char buffer[128];
-        int len = serializeJson(doc,buffer); 
-        ws.textAll(buffer,len); //naja, so viel besser ist das nicht 
-        */ 
-        ws.textAll("{\"action\":\"addNew\",\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+removeFirst);
-        //baue mein json objekt selbst, na gut, doch ein wenig laestig
-        //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
-        //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
-        wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
-      }
-    }
-    newRfidId = "";
-    newRfidOwner = "";
-}
-
-
 void mountFileSystem()
 { // versuchen, ein vorhandenes Dateisystem einzubinden
   if (!LittleFS.begin(false)) 
@@ -363,8 +314,60 @@ void mountFileSystem()
   Serial.printf("- Bytes total:   %ld\n", LittleFS.totalBytes());
   Serial.printf("- Bytes genutzt: %ld\n\n", LittleFS.usedBytes());
 }
+//wird nur zur liste der neuen hinzugefuegt, falls vorhanden wird das relais geschaltet
+void handleNewRFID() {
+    unsigned int pos = rfidsNew.getDelimiterPos();
+    String removeFirst = "\",\"removeFirst\":false}";
+    //const int capacity = JSON_OBJECT_SIZE(3); //zu erweitern, wenn ich die liste uebertrage
+    //bisher ein Objekt mit 3 membern
+    //StaticJsonDocument<capacity> doc;    
+    if (newRfidId != "")
+    {
+      //auf schalten checken
+      if (rfidsOk.indexOfRfid(newRfidId) != -1)
+      {
+        digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
+        delay(200);
+        digitalWrite(RELAIS_PIN,LOW);
+      }
+      //erstes nur entfernen, wenn ein nicht schon vorhandenes hinzugefügt werden 
+      //und wir zu viele haben
+      int found = rfidsNew.indexOfRfid(newRfidId);
+      if (pos == RFID_MAX && found == -1)
+      {
+        removeFirst = "\",\"removeFirst\":true}";
+        Serial.println("remove first");
+        rfidsNew.removeAt(0);
+      }
+      rfidsNewChanged = rfidsNew.add(newRfidId,newRfidOwner);
+      if (rfidsNewChanged)
+      {
+        /*
+        doc["action"] = "new";
+        doc["rfid"]   = newRfidId.c_str();
+        doc["owner"]   = newRfidOwner.c_str();
+        char buffer[128];
+        int len = serializeJson(doc,buffer); 
+        ws.textAll(buffer,len); //naja, so viel besser ist das nicht, lohnt sich bei großen objekten
+        */ 
+        if (WiFi.status() == WL_CONNECTED)
+        {
+          ws.textAll("{\"action\":\"addNew\",\"rfid\":\""+newRfidId+"\",\"owner\":\""+newRfidOwner+removeFirst);
+          //baue mein json objekt selbst, na gut, doch ein wenig laestig
+          //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
+          //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
+          wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
+        }
+      }
+    }//ende newRfid vorhanden
+    newRfidId = "";
+    newRfidOwner = "";
+}
 
 void setup() {
+  //pin fuer das relais 
+  pinMode(RELAIS_PIN, OUTPUT);
+  digitalWrite(RELAIS_PIN,LOW);
   //beginn der seriellen Kommunikation mit 115200 Baud
   Serial.begin(115200);
   mountFileSystem();
@@ -383,11 +386,6 @@ void setup() {
     Serial.print("Wifi Connected, adress ");
     Serial.println(WiFi.localIP());
     String msg = String("Wifi connected ,adress ") + WiFi.localIP().toString();
-    ArduinoOTA.setHostname("Rfid1");//muss vor begin stehen 
-    ArduinoOTA.begin();
-    ArduinoOTA.onStart(handleOTAStart);
-    ArduinoOTA.onProgress(handleOTAProgress);
-    ArduinoOTA.onEnd(handleOTAEnd);
 
     server.onNotFound(notFound);
     //lustig, ich bin alt,  [] leitet einen Lambda Ausdruck ein, also eine anonyme Funktion
@@ -430,6 +428,7 @@ void setup() {
     */
     ws.onEvent(onWSEvent);
     server.addHandler(&ws); //WebSocket dazu 
+    AsyncElegantOTA.begin(&server);    // Start ElegantOTA
     server.begin();
   }
   
@@ -441,6 +440,7 @@ void setup() {
   //initialisieren der Kommunikation mit dem RFID Modul
   mfrc522.PCD_Init();
   startTime = millis();
+
 }
 
 void loop() {
@@ -457,8 +457,6 @@ void loop() {
   
   if (WiFi.status() == WL_CONNECTED)
   {
-    ArduinoOTA.handle(); //warnhinweis: mehr als 5s delay in der loop und der upload wird nicht funktionien
-
     ws.cleanupClients(); // aeltesten client heraus werfen, wenn maximum Zahl von clients ueberschritten, 
                        // manchmal verabschieden sich clients wohl unsauber / gar nicht -> werden wir brutal  
   }  
@@ -480,8 +478,9 @@ void loop() {
       lastRfid = newRfidId;
       Serial.println("gelesene RFID-ID: " + newRfidId);
     }
+    //teste, ob das relais zu schalten ist 
   }
-  
-  addNewAndNotifyClients(); //wenn neu, dann hinzufügen
+ 
+  handleNewRFID(); //wenn neu, dann hinzufügen, wenn vorhanden, dann schalten
     
 }

@@ -12,9 +12,10 @@ const char index_html[] PROGMEM = R"rawliteral(
        border: 1px solid black; 
        padding: 1em;
       }
-      div {
+      iMessage {
         border: 1px solid red;
         padding: 1em;
+        margin-left: 1em;
       }
       ul {
         border: 1px solid blue;
@@ -26,6 +27,10 @@ const char index_html[] PROGMEM = R"rawliteral(
       }
       h2 {
         font-size: 110%%;
+      }
+      .hinweis {
+        border: 2px solid darkgreen;
+        padding: 2em;
       }
     </style>
     <script>
@@ -235,29 +240,48 @@ const char index_html[] PROGMEM = R"rawliteral(
   </head> 
   <body style='font-family:Helvetica, sans-serif'> 
     <h1>Webserver for RFID config <button type="button" id="bWiFiStop">Stop WiFi, save energy</button></h1>
-    <p>Eintrag zum Test (nicht sinnvoll im normalen Betrieb):</p>
+    <div>
+     Nachrichten:
+     <span id="iMessage">
+     </span>
+    </div>
+    <form> <!-- method='post' action='/' name='rfid'> wollte mal mit post uebertragen, lasse das -->
+    <h2>gelesene / neue  RFIDs <button id="bClearNew" type="button">Clear (ESP)</button> </h2>
+    <ul id="iULNew">
+    </ul>
+    <h2>authorisierte RFIDs</h2>
+    <ul id="iULOk">
+    </ul>
+    </form>
     <form> 
+     <span>Eintrag zum Test:</span>
       <input id='testEintrag' placeholder='RFIDid' type='text'>
       <input id='testOwner' placeholder='Owner' type='text'>
       <button type='button' id='bTestEintrag'>go</button>
     </form>
-    <div id="iMessage">
+    <h2>Erl&auml;uterungen</h2>
+    <div>
+    <p>
+    Die RFIDs werden in zwei Listen verwaltet, den neuen und den akzeptierten / authorisierten RFIDs. 
+    Erst ist die RFID aufgeführt, dann die Bezeichnung, z.B. Besitzerin.</p>
+    Mehr als 8 RFIDs pro Liste sind nicht möglich, kommt eine mehr, so wird die erste gekickt, im Fall der akzeptierten Rfids
+    wird keine Änderung vorgenommen.</p>
+    <p>
+    Die Liste der neuen wird durch einen Testeintrag und durch Wedeln mit einem Tag modifiziert, sie 
+    ist nicht persistent. Ist eine neue ID hinzugefügt werden, so sollte eine Bezeichnung vergeben werden.
+    Klickt man in der Liste der neuen auf Add, so wird die ID in die Liste der akzeptieren übernommen.</p>
+    <p>Wird ein RFID hinzugefügt, dass vorhanden ist, so wird ein Relais geschaltet.
+    <p>Die zweite Liste beinhaltet alle akzeptierten / authorisierten RFID-Tags. Wenn Sie klicken, so wird das Tag entfernt und in die Liste der
+    gelesenen/neuen eingefuegt. Jede Änderung dieser Liste wird sofort auf dem ESP gespeichert, auch im Dateisystem.</p>
+    
+    <div class = "hinweis">Ein Update der Firmware / des Sketches kann &uuml;ber OTA erfolgen.
+      <ol>
+        <li>Bin-Datei erzeugen, in der IDE Sketch -> Kompilierte ... exportieren oder Strg Alt s </li>
+        <li>Upload der Firmware über %UPDATE_LINK% (findet sich im Sketchordner) </li>
+      </ol>
+      Das sollte auch fuer das Dateisystem statt Firmware gehen, ist aber unnoetig, da ich mir damit die 
+      gespeicherten RFIDs loesche. Da sonst nichts dort liegt - egal. (Gibt wohl auch Probleme mit der Arduino-Ide das Dateisystem als bin 
+      zu erzeugen, wenn kein USB.
     </div>
-    <form> <!-- method='post' action='/' name='rfid'> wollte mal mit post uebertragen, lasse das -->
-    <p>Um neue RFIDs zu lesen bitte vor dem Sensor mit dem Teil wedeln und dann den Besitzer einzutragen, bevor weitere Aktionen erfolgen.
-    <br>
-    Mehr als 8 RFIDs pro Liste sind nicht möglich, kommt einer mehr, so wird der erste gekickt.</p>
-    <h2>gelesene RFIDs <button id="bClearNew" type="button">Clear (ESP)</button> </h2>
-    <p>Beachte: Wenn man in der Liste klickt, dann wird das RFID-Tag in die Liste der authorisierten aufgenommen. 
-    Das erste Feld ist die gelesene RFID, das zweite ist der einzutragende Besitzer, diesen Einzutragen ist sinnvoll. </p>
-    <p>Die Liste ist nicht perstistent, bei einem Neustart des ESP ist sie leer.</p>
-    <ul id="iULNew">
-    </ul>
-    <h2>authorisierte RFIDs</h2>
-    <p>Das zweite Feld beinhaltet die Liste aller vorhandenen RFID-Tags. Wenn Sie klicken, so wird das Tag entfernt und in die Liste der
-    gelesenen eingefuegt. Dies wird sofort auf dem ESP gespeichert, auch im Dateisystem</p>
-    <ul id="iULOk">
-    </ul>
-    </form>
   </body></html>
 )rawliteral";
