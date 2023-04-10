@@ -44,16 +44,16 @@ er zeigt im seriellen monitor aber nix an
 
 
 gpio 27 noch ein beinchen gelötet, ist rtc-17 muesste den esp aus dem deep sleep 
-holen können 
+holen können, geht auch, verwende ich nicht, gpio15 muesste genauso gehen  
 
-scheint zu gehen, habe gpio 27 parallel zu sck geschaltet und er wacht auf, wenn man 
+scheint zu gehen, habe gpio parallel zu sck geschaltet und er wacht auf, wenn man 
 mit dem rfid teil wedelt aber er wacht auch mal so auf, vielleicht sollte man 
 ein anderes teil nehmen 
 Die anderen gehen auch nicht (Miso getestet) auch mal per pull down auf masse.
 irq kommt nach beschreibung nicht, kann also nicht genutzt werden 
 eigentlich sehr seltsam, aber nicht zu ändern. Wenn deepsleep dann ueber touch (das ist 27 auch)
 aber dann müsste ich den Kontakt irgendwie nach draußen herstellen, noch nicht implementiert.
-
+irq getestet, scheint nicht zu gehen 
 
 Baue Programm so, dass zumindest Wifi nach einiger Zeit herunter geht. 
 Verbindet sich jemand über http, dann bleibt der Server wach 
@@ -66,6 +66,16 @@ Ota: wenn die Platine eingebaut ist, dann ist ein normales update nicht unbeding
 Daher OTA - aber das lief nicht mit dem Async Webserver. Schade. 
 
 Daher AsyncElegantOta -> Achtung, musste im h-File einen include aendern, statt ESPAsyncWebServer.h ESPAsyncWebSrv.h
+
+##Energiebedarf und Kabel
+Am 12,8 Volt nimmt er ca 90mA. Bei WebAktivität und schalten natürlich mehr, schwer zu sehen, ich denke so um die 150mA.
+WiFi aus -> es sind noch 84mA, da hatte ich mir weniger Energie erhofft. Mal sehen, ob man noch etwas abschalten kann.
+Also in dem Zustand ein Watt, finde ich zu viel :-(, bringt mich aber nicht um 
+Hoffe, die Einschaltströme sind nicht zu hoch.
+Kabelquerschnitte dürften für die Energie recht egal sein. Versuche mal für die langen Kabel zum RFID-Leser 0,25mm²
+
+Sparen lässt sich durch Verwendung eines "reinen ESP". Dann fällt der USB Kram weg, aber ich habe eigentlich keine
+Lust mehr dazu. Sinnvoll wäre vielleicht doch der deep-Sleep. Ach nee, alles zuviel Aufwand...
 
 
 

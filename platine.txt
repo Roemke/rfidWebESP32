@@ -1,0 +1,36 @@
+Nach ein paar Experimente mit Fritzing, erfolglos, Software verhält sich für mich einfach seltsam. 
+(Bauteile nicht da, dann Download,  Bauteile stellen keine Verbindung her, Verpolung eines Bauteils, Fehler beim Routen)
+dann doch eine Lochrasterplatine - was solls, ESP32 ist das D1 mini Format.
+
+ESP Usb       GND x  Spannung  x GND--- x GND  Eingang an Buchse
+nach unten    5 V x  wandler   x 12 V --x 12V
+                                           x 5V      <- zum Relais
+                              1234         x Steuer
+                              5678         x GND
+
+
+
+1-8 Stiftleiste zum RFID Leser (orientierung an rotem und schwarzem kabel 
+neben den Pins zu sehen)
+
+1 5
+2 6
+3 7 
+4 8
+
+1 3.3V
+5 GND
+2 GPIO 23 MOSI
+6 GPIO 15 - ungenutzt, evtl. f. deep sleep
+3 GPIO 19 MISO
+7 GPIO 21 SDA
+4 GPIO 18 SCK
+8 GPIO 22 RST
+
+Alles mit 0,25mm², das muesste problemlos reichen, wahrscheinlich sind auch 
+0,14 ok. Bedenke nur lange Kabel zum Leser, der soll unter die Windschutzscheibe.
+
+Probleme: Der Spannungswandler war AMS1117 - der kann maximal 15 V, sollte aber nur bis 12 V betrieben werden. Tausch ihn gegen LM2596
+Der passt nicht mehr gut in das Gehäuse. Vorher denken wäre sinnvoll gewesen...
+Relais versehentlich mit 12 V betrieben - ändern, mal sehen, ob es noch funktioniert. 
+Es tut es noch, sehr beeindruckend, die Relais scheinen sehr robust zu sein.

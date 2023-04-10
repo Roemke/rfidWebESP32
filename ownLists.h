@@ -1,19 +1,117 @@
 #include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema sein
 
 //die listen waren quatsch - ich hätte besser eine Liste von Objekten verwendet - aber jetzt wird die 
-//Zeit langsam eng, daher lasse ich erst mal so
-class RfidList; //forward
-class StringList {
+//Zeit langsam eng, daher lasse ich erst mal so - nein, ändere es, schreibe eine eigene Liste, stl geht nicht?
+//bin mir noch nicht im klaren, ob ich irgendwo speicher-Probleme erzeuge
+class Rfid {
+  public: 
+    String id = "";
+    String owner = ""; 
+    String extraData = "";
+    bool valid = false;
+
+    Rfid() = default;
+    //irgendwo bekomme ich sonderzeichen herein, wende trim an
+    Rfid(const String &i, const String &o)
+    {
+      id=i;
+      owner=o;
+      id.trim();
+      owner.trim();
+      extraData = "";
+      valid = true;
+    }
+
+    Rfid(const String &i, const String &o, const String &eD)
+    {
+      id=i;
+      owner = o;
+      extraData = eD;
+      id.trim();
+      owner.trim();
+      extraData.trim();
+      valid = true;
+    }
+    //Aus String-Repräsentation erstellen 
+    Rfid(const String &str, const char sep)
+    {
+      id= str;
+      owner="";
+      extraData = "";
+      valid = true;
+      String s = str;
+      int index = s.indexOf(sep); 
+      if (index != -1) // No space found
+      {
+        id = s.substring(0, index);
+        s = s.substring(index+1);
+        index = s.indexOf(sep); //der zweite
+        if (index != -1)
+        {
+          owner = s.substring(0,index);
+          extraData = s.substring(index+1);
+        }
+        else 
+          owner=s;
+      }
+      id.trim();
+      owner.trim();
+      extraData.trim();
+      
+      //Serial.println("Created id: " + id + ",owner: " + owner + " and extraData: " + extraData);
+    }
+    String getAsString(const char sep = '|') const
+    {
+      return id + sep + owner + sep + extraData;
+    }
+    
+    void setExtraData(byte * eD)
+    {
+      extraData = "";
+      for (byte i = 0; i < 16; i++) 
+      {
+        extraData += (eD[i] < 0x10) ? " 0" : " ";
+        extraData += String(eD[i],HEX);
+      }
+      extraData.trim();
+    }
+    
+    bool operator==(const Rfid & rhs) const
+    {
+      return (id == rhs.id) && (owner == rhs.owner) && (extraData == rhs.extraData);
+    }
+    
+    operator String() const 
+    {
+      return getAsString();
+    }
+    
+};
+String operator+=(String &s, const Rfid & rhs)
+{
+  s += rhs.getAsString();
+}
+String operator+(const String &s, const Rfid & rhs)
+{
+  return s + rhs.getAsString();
+}
+String operator+(const Rfid &lhs, const String & s)
+{
+  return lhs.getAsString() + s;
+}
+
+
+//class RfidList; //forward
+template <typename T>class ObjectList {
   private: 
-    friend class RfidList;
     unsigned int max;
-    String *strings; //nie gedanken darueber gemacht String scheint eine Klasse fuer Arduino zu sein
+    T *objects; //nie gedanken darueber gemacht String scheint eine Klasse fuer Arduino zu sein
     unsigned int pos=0; //hinter letztem Eintrag
     char * fileName = NULL; //wird der char * als Literal übergeben, ist er im Flash und im RAM - wie lange ist er da?
                            //ah ja, string literale sind automatisch statisch - daher vermutlich auch das speichern im Ram und im Flash
                            //dennoch zur sicherheit kopie
   public:
-    StringList(unsigned int max, const char * fileName = "")
+    ObjectList(unsigned int max, const char * fileName = "")
     {
       this->max = max;
       unsigned len = strlen(fileName);
@@ -22,11 +120,11 @@ class StringList {
         this->fileName = new char[len+1];
         strcpy(this->fileName,fileName);
       }    
-      strings = new String[max];
+      objects = new T[max];
     }
-    ~StringList()
+    ~ObjectList()
     {
-      delete[] strings;
+      delete[] objects;
       delete [] fileName; //delete on Null should be safe
     }
 
@@ -34,52 +132,70 @@ class StringList {
     {
       return pos;
     }
-
-    
     void clear()
     {
+      /*
       for (int i = 0 ; i < pos ; ++i)
-        strings[i] = "";
+      {
+        objects[i] = Null;
+      }*/
+        
       pos = 0;
       return; 
     }
-    void add(String s) //am ende einfuegen, ggf. platz frei machen 
+    void add(const T &o) //am ende einfuegen, ggf. platz frei machen 
     {
       if (pos == max) //voll
       {
         for (unsigned int i = 0; i < max-1; ++i)
-          strings[i] = strings[i+1];
+          objects[i] = objects[i+1];
         pos--;  
       }
-      strings[pos++] = s;
+      objects[pos++] = o;
+    }
+    //nur hinzufuegen, wenn die id noch nicht da und liste nicht voll
+    bool addNew(const T & o)
+    {
+      bool retVal = false;
+      if (indexOfOnlyId(o) == -1  && pos < max)
+      {
+        add(o);
+        retVal = true;    
+      }
+      return retVal;
+    }
+    //hmm, was ist mit index out of bounds ? Exception - habe zu lang kein c++ mehr programmiert ...
+    const T & getAt(int index)
+    {
+      return objects[index]; 
     }
 
-    String * getList(unsigned int & anzahl)
+    T * getList(unsigned int & anzahl)
     {
       anzahl = pos;
-      return strings;  
+      return objects;  
     }
     void serialPrint()
     {
       Serial.println("--------------");
       for (unsigned int i = 0; i < pos ; ++i)
-        Serial.println(strings[i]);
+        Serial.println(String(objects[i]));
       Serial.println("--------------");
     }
     String htmlLines()
     {
       String result = "";
       for (unsigned int i = 0 ; i < pos ; ++i)
-        result += strings[i] + "<br>\n";  
-      return result; 
+        result += objects[i] + "<br>";  //+ ueberladen
+      return result;
     }
     
-    int getIndexOf(String s)
+    int indexOf(const T & o)
     {
       int index = -1;
       for (int i = 0 ; i < pos ; ++i)
       {
-        if (strings[i] == s)
+        if (objects[i] == o)
         {
             index = i;
             break;
@@ -87,20 +203,35 @@ class StringList {
       }
       return index;
     }
+    int indexOfOnlyId(const T & o)
+    {
+      int index = -1;
+      for (int i = 0 ; i < pos ; ++i)
+      {
+        if (objects[i].id == o.id)
+        {
+            index = i;
+            break;
+        }
+      }
+      return index;
+     
+    }
     void deleteAt(int index)
     {
       if (index > -1 && index < max)
       {
         --pos;
         for (int i = index; i < pos;  ++i)
-          strings[i] = strings[i+1];
-        strings[pos] = "";
+          objects[i] = objects[i+1];
       }
     }
-    //gibt den Index des gelöschten zurück
-    int deleteEntry(String s)
+    //gibt den Index des geloeschten zurück
+    int deleteEntry(const T &o)
     {
-      int index = getIndexOf(s);
+      int index = indexOf(o);
+      //Serial.print("Found to delete at ");
+      //Serial.println( index);
       deleteAt(index);
       return index;
     }
@@ -108,6 +239,7 @@ class StringList {
     //toCheck: muss erst gemounted werden? - denke nicht
     bool loadFromFile()
     {
+      Serial.println("Load from filesystem");
       bool ret = true;
       if (fileName !="")
       {
@@ -117,7 +249,8 @@ class StringList {
          {
             while (dataFile.available() && i < max)
             {
-               strings[i++] = dataFile.readStringUntil('\n'); 
+               objects[i++] = T(dataFile.readStringUntil('\n'),'|');
+               //Serial.println("Add object"); 
             }
             pos = i;
             dataFile.close();
@@ -138,135 +271,12 @@ class StringList {
          if (dataFile)
          {
           for (int i = 0; i < pos ; ++i)
-            dataFile.println(strings[i]); //scheint er so zu nehmen
+            dataFile.println(objects[i].getAsString('|')); //scheint er so zu nehmen
           dataFile.close();
          }
          else 
           ret = false;
       }
       return ret;      
-    }
-};
-
-class RfidList 
-{
-  private:
-    unsigned int max;
-    StringList *rfidL;
-  public: 
-    RfidList(int max, const char *fileName = "")
-    {
-      
-      this->max = max;
-      rfidL = new StringList(max,fileName); 
-    }
-    ~RfidList()
-    {
-      delete rfidL;
-    }
-    void clear()
-    {
-      rfidL->clear();
-    }
-    int indexOfRfid(String rfid)
-    {
-      int index = -1;
-      int pos = rfidL->getDelimiterPos();
-      for (int i = 0 ; i < pos ; ++i)
-      {
-        int pBar = (rfidL->strings)[i].indexOf('|');
-        String lrfid = (rfidL->strings)[i].substring(0,pBar);
-        if (lrfid == rfid)
-        {
-            index = i;
-            break;
-        }
-      }
-      return index;
-    }  
-    void getAt(int index, String &rfid, String &owner)
-    {
-        String &s = rfidL->strings[index];
-        int p = s.indexOf('|');
-        rfid = s.substring(0,p);
-        owner = s.substring(p+1);
-    }
-    //nur hinzufuegen, wenn noch nicht da und liste nicht voll
-    bool add(String rfid, String owner)
-    {
-      bool retVal = false;
-      int pos = rfidL->getDelimiterPos();
-      if (indexOfRfid(rfid) == -1  && pos < max)
-      {
-        rfidL->add(rfid+'|' + owner);
-        retVal = true;    
-      }
-      return retVal;
-    }
-    
-    void remove(String rfid)
-    {
-      int index = indexOfRfid(rfid);
-      //Serial.println("in rfidlist Remove " + rfid + " at index " +i);
-      rfidL->deleteAt(index);     
-    }
-
-    void removeAt(int index)
-    {
-      rfidL->deleteAt(index);      
-    }
-
-    int getIndexOf(String rfid,String owner)
-    {
-      return rfidL->getIndexOf(rfid+'|'+owner); 
-    }
- 
-    unsigned int getDelimiterPos() //eins hinter dem letzten Eintrags
-    {
-      return rfidL->getDelimiterPos();
-    }
-
- 
-    String htmlLines(String bText)//werde ich nicht mehr brauchen 
-    {
-      String result = "";
-      int pos = rfidL->getDelimiterPos();      
-      for (unsigned int i = 0 ; i < pos; ++i)
-      {
-        String &s = rfidL->strings[i];
-        int p = s.indexOf('|');
-        String rfid = s.substring(0,p);
-        String owner = s.substring(p+1); 
-        /*
-        result += "<li><input type='checkbox' name='cb" + name+i+"'>" 
-                  "<input type='text' name='rfid" + name+i+"' value='" +rfid+"' readonly>"
-                  "<input type='text' name='owner" + name+i+"' value='" +owner+"'></li>\n";
-        */
-        result += "<li><button type='button'>" + bText + "</button><input type='text 'value='" +rfid+ "' readonly>"
-                  "<input type='text' value='" +owner+ "'></li>\n";
-        /* schade arrays gehen im Webserver nicht 
-        result += "<input type='checkbox' name='cb"+name+"[]'>" 
-                  "<input type='text' name='rfid"+name+"[]' value='" +rfidL->strings[i]+"' readonly>"
-                  "<input type='text' name='owner"+name +"[]' value='" +ownerL->strings[i]+"'><br>\n";
-        */
-      }
-      return result; 
-    }
-
-    void serialPrint()
-    {
-      rfidL->serialPrint();
-    }
-
-    bool loadFromFile()
-    {
-        bool rfid = rfidL->loadFromFile();
-        return rfid;
-    }
-
-    bool saveToFile()
-    {
-        bool rfid = rfidL->saveToFile();
-        return rfid;
     }
 };

@@ -12,9 +12,10 @@ const char index_html[] PROGMEM = R"rawliteral(
        border: 1px solid black; 
        padding: 1em;
       }
-      iMessage {
-        border: 1px solid red;
+      #divNachrichten {
+        border: 1px solid blue;
         padding: 1em;
+        margin-top:  1em;
         margin-left: 1em;
       }
       ul {
@@ -55,8 +56,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         { //nur wenn es passt, obwohl auch der server die pruefung vornimmt - rueckmeldung
             let inputs = Array.from(li.querySelectorAll("input"));
             let rfid = inputs[0].value;
-            let owner = inputs[1].value;
-            let sendObject = {"action":"addAuthorized","rfid":rfid,"owner":owner};
+            let extraData = inputs[1].value; 
+            let owner = inputs[2].value;
+            let sendObject = {"action":"addAuthorized","rfid":rfid,"extraData":extraData,"owner":owner};
             websocket.send(JSON.stringify(sendObject));
         }
       }
@@ -67,8 +69,9 @@ const char index_html[] PROGMEM = R"rawliteral(
         let anzahl = newList.querySelectorAll("li").length; 
         let inputs = Array.from(li.querySelectorAll("input"));
         let rfid = inputs[0].value;
-        let owner = inputs[1].value;
-        let sendObject = {"action":"removeAuthorized","rfid":rfid,"owner":owner};
+        let extraData = inputs[1].value; 
+        let owner = inputs[2].value;
+        let sendObject = {"action":"removeAuthorized","rfid":rfid,"extraData":extraData,"owner":owner};
         websocket.send(JSON.stringify(sendObject));
      }
 
@@ -78,6 +81,7 @@ const char index_html[] PROGMEM = R"rawliteral(
          websocket = new WebSocket(gateway);
          websocket.onopen = () =>
          {  
+            websocket.send(JSON.stringify({'action':'getStartmeldungen'}));
             websocket.send(JSON.stringify({'action':'getRfidsNew'}));
             websocket.send(JSON.stringify({'action':'getRfidsOk'}));
             websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':0}));
@@ -96,7 +100,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             console.log(e);
             console.log(e.data);
             let data =JSON.parse(e.data);
-            console.log(data);
+            //console.log(data);
             let newList = document.getElementById("iULNew");
             let okList = document.getElementById("iULOk");
             let newNode;
@@ -104,7 +108,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             switch (data.action)
             {
               case "message":
-                document.getElementById("iMessage").innerHTML = data.text;
+                document.getElementById("iMessage").innerHTML += data.text + "<br>";
                 break;
               case "addNew":
                 if (data.removeFirst)
@@ -114,6 +118,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 //let pos = newList.children.length;
                 newNode = htmlToElement("<li><button type='button'>add</button> " + 
                       "<input type='text' value='" +data.rfid+"' readonly>"+
+                      "<input type='text' value='" +data.extraData +"' readonly>" +
                       "<input type='text' value='" +data.owner+"'></li>");
                 newList.append(newNode);
                 newNode.children[0].addEventListener("click",addClicked);//der button                                 
@@ -136,6 +141,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 
                 newNode = htmlToElement("<li><button type='button'>remove</button> " + 
                       "<input type='text' value='" +data.rfid+"' readonly>"+
+                      "<input type='text' value='" +data.extraData+"' readonly>"+
                       "<input type='text' value='" +data.owner+"'></li>");
                 okList.append(newNode);
                 newNode.children[0].addEventListener("click",removeClicked);//der button   
@@ -161,6 +167,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 {
                   newNode = htmlToElement("<li><button type='button'>remove</button> " + 
                       "<input type='text' value='" +entry.rfid+"' readonly>"+
+                      "<input type='text' value='" +entry.extraData+"' readonly>"+
                       "<input type='text' value='" +entry.owner+"'></li>");
                   
                   newNode.children[0].addEventListener("click",removeClicked);//der button                                 
@@ -176,6 +183,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 {
                   newNode = htmlToElement("<li><button type='button'>add</button> " + 
                       "<input type='text' value='" +entry.rfid+"' readonly>"+
+                      "<input type='text' value='" +entry.extraData+"' readonly>"+
                       "<input type='text' value='" +entry.owner+"'></li>");
                   
                   newNode.children[0].addEventListener("click",addClicked);//der button                                 
@@ -195,12 +203,15 @@ const char index_html[] PROGMEM = R"rawliteral(
         document.getElementById('bTestEintrag').addEventListener("click",() => 
         {
           let rfid = document.getElementById('testEintrag').value; 
+          let extraData = document.getElementById('testExtraData').value;
           let owner = document.getElementById('testOwner').value;
+          
           //websocket.send(rfid+'|'+owner);
           websocket.send(JSON.stringify(
           {
               'action':'addNew',
               'rfid':rfid,
+              'extraData':extraData,
               'owner':owner
           }));
         });
@@ -215,6 +226,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         {
            websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':3000}));//in drei Sekunden
         });
+        
         /*heraus genommen 
         document.getElementById('bSaveToServer').addEventListener("click",() =>
         {
@@ -240,11 +252,6 @@ const char index_html[] PROGMEM = R"rawliteral(
   </head> 
   <body style='font-family:Helvetica, sans-serif'> 
     <h1>Webserver for RFID config <button type="button" id="bWiFiStop">Stop WiFi, save energy</button></h1>
-    <div>
-     Nachrichten:
-     <span id="iMessage">
-     </span>
-    </div>
     <form> <!-- method='post' action='/' name='rfid'> wollte mal mit post uebertragen, lasse das -->
     <h2>gelesene / neue  RFIDs <button id="bClearNew" type="button">Clear (ESP)</button> </h2>
     <ul id="iULNew">
@@ -256,9 +263,15 @@ const char index_html[] PROGMEM = R"rawliteral(
     <form> 
      <span>Eintrag zum Test:</span>
       <input id='testEintrag' placeholder='RFIDid' type='text'>
+      <input id='testExtraData' placeholder='extraData' type='text'>
       <input id='testOwner' placeholder='Owner' type='text'>
       <button type='button' id='bTestEintrag'>go</button>
     </form>
+    <div id='divNachrichten'>
+     Nachrichten:
+     <p id="iMessage">
+     </p>
+    </div>
     <h2>Erl&auml;uterungen</h2>
     <div>
     <p>
@@ -270,7 +283,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     Die Liste der neuen wird durch einen Testeintrag und durch Wedeln mit einem Tag modifiziert, sie 
     ist nicht persistent. Ist eine neue ID hinzugefügt werden, so sollte eine Bezeichnung vergeben werden.
     Klickt man in der Liste der neuen auf Add, so wird die ID in die Liste der akzeptieren übernommen.</p>
-    <p>Wird ein RFID hinzugefügt, dass vorhanden ist, so wird ein Relais geschaltet.
+    <p>Wird ein RFID im Testeintrag hinzugefügt, dass vorhanden ist, so wird das Relais geschaltet.
     <p>Die zweite Liste beinhaltet alle akzeptierten / authorisierten RFID-Tags. Wenn Sie klicken, so wird das Tag entfernt und in die Liste der
     gelesenen/neuen eingefuegt. Jede Änderung dieser Liste wird sofort auf dem ESP gespeichert, auch im Dateisystem.</p>
     
