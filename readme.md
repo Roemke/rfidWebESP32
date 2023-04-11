@@ -66,7 +66,7 @@ Daher OTA - aber das lief nicht mit dem Async Webserver. Schade.
 
 Daher AsyncElegantOta -> Achtung, musste im h-File einen include aendern, statt ESPAsyncWebServer.h ESPAsyncWebSrv.h
 
-##Energiebedarf und Kabel
+## Energiebedarf und Kabel
 Am 12,8 Volt nimmt er ca 90mA. Bei WebAktivität und schalten natürlich mehr, schwer zu sehen, ich denke so um die 150mA.
 WiFi aus -> es sind noch 84mA, da hatte ich mir weniger Energie erhofft. Mal sehen, ob man noch etwas abschalten kann.
 Also in dem Zustand ein Watt, finde ich zu viel :-(, bringt mich aber nicht um 
@@ -79,7 +79,7 @@ Lust mehr dazu. Sinnvoll wäre vielleicht doch der deep-Sleep. Ach nee, alles zu
 
 Verdrahtung in der Datei platine.txt notiert
 
-##Änderungen
+## Änderungen
 Das schalten nur über die UID ist natürlich nicht sonderlich sicher. Bei den MIFARE 1k Karten (die sind günstig) gibt es zwar die Möglichkeit
 einen Schlüssel zu verwenden, der ist aber auch relativ schnell geknackt, damit ist eine kopierte Karte schon recht leicht zu erstellen. 
 Folgendes Vorgehen macht es eventuell etwas sicherer. 
@@ -93,13 +93,13 @@ Folgendes Vorgehen macht es eventuell etwas sicherer.
   Damit ist eine Kopie nur solange gültig, bis die Originalkarte vor das Lesegerät gehalten wurde
   (Das ganze wird über Zufallszahlen gemacht und sicher kann man auch aus einem Wert den nächsten berechnen, aber ich denke mit einem Hammer ist man schneller im Kastenwagen).
 
-##Nette Nebensache 
+## Nette Nebensache 
 Ich wollte ursprünglich nur eine Möglichkeit haben, den Kastenwagen auch zu öffnen, wenn der Funkschlüssel nicht mehr funkt. 
 Das geht nicht, wenn man die Vordertüren über ein Stahlseil verbunden hat, der normale Schlüssel öffnet nur die Vordertüren. Aber er sorgt 
 dafür, dass auch der Schalter an der Mittelkonsole wieder funktioniert. Einmal Drücken schließt ab, nochmal alles wieder auf. Das geht 
 dann auch mit dem Relais.  
 
-##Danke & Sonstiges 
+## Danke & Sonstiges 
 
 * an die Autoren unzähliger Codeschnipsel, die ich gefunden habe - wirklich schwierig fand ich nur den Zugriff auf die RFID-Karte, mir 
 ist immer noch nicht klar, wan man welche Funktion aufrufen muss - so läuft es auf jeden Fall erst mal :-), wenn mir auch unklar ist wie ich 
