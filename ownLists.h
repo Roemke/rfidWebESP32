@@ -70,12 +70,60 @@ class Rfid {
       extraData = "";
       for (byte i = 0; i < 16; i++) 
       {
-        extraData += (eD[i] < 0x10) ? " 0" : " ";
+        extraData += (eD[i] < 0x10) ? "0" : "";
         extraData += String(eD[i],HEX);
       }
+      extraData.toUpperCase();
       extraData.trim();
     }
-    
+
+    void generateExtraData()
+    {
+      auto randchar = []() -> char
+      {
+        const char charset[] =
+        "0123456789"
+        "ABCDEF";
+        const size_t max_index = (sizeof(charset) - 1);
+        return charset[ rand() % max_index ];
+      };
+      extraData="";
+      for (int i = 0 ; i < 32; ++i)
+        extraData += randchar(); 
+    }
+    void extraDataToByteArray(byte * buffer)
+    {
+      int max = extraData.length() / 2;
+      if (max > 16)
+        max = 16; 
+      const char * extra = extraData.c_str();
+      byte b;
+      Serial.println("In extraDataToByteArray:");
+      for (int i = 0 ; i < max; ++i)
+      {
+        sscanf( extra + 2*i, "%2hhx", &b); //hh means a byte not an int
+        *(buffer + i) = b;
+      }  
+    }
+
+
+    void setOwner(byte * o)
+    {
+      owner = "";
+      for (byte i = 0; i < 32; i++) 
+      {
+        owner += !iscntrl(o[i]) ? (char) o[i] : ' ';
+      }
+      owner.trim();
+    }
+    void ownerToByteArray(byte * buffer)
+    {
+      int max = owner.length();
+      if (max > 32)
+        max = 32;  
+      for (int i = 0 ; i < max; ++i)
+        buffer[i] = (byte) owner[i];
+    }
     bool operator==(const Rfid & rhs) const
     {
       return (id == rhs.id) && (owner == rhs.owner) && (extraData == rhs.extraData);
@@ -105,7 +153,7 @@ String operator+(const Rfid &lhs, const String & s)
 template <typename T>class ObjectList {
   private: 
     unsigned int max;
-    T *objects; //nie gedanken darueber gemacht String scheint eine Klasse fuer Arduino zu sein
+    T *objects; 
     unsigned int pos=0; //hinter letztem Eintrag
     char * fileName = NULL; //wird der char * als Literal übergeben, ist er im Flash und im RAM - wie lange ist er da?
                            //ah ja, string literale sind automatisch statisch - daher vermutlich auch das speichern im Ram und im Flash
@@ -165,7 +213,7 @@ template <typename T>class ObjectList {
       return retVal;
     }
     //hmm, was ist mit index out of bounds ? Exception - habe zu lang kein c++ mehr programmiert ...
-    const T & getAt(int index)
+    T & getAt(int index)
     {
       return objects[index]; 
     }

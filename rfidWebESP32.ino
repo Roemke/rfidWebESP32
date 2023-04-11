@@ -7,7 +7,7 @@
 #include <ArduinoJson.h>   
 #include <SPI.h>
 #include <MFRC522.h>
-#include "credentials.h"
+#include "credentials.h" //erstellen, s. credentials_template.h
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
 /*
@@ -108,6 +108,30 @@ void wsMessage(const char *message)
   ws.textAll(str);
   delete [] str;
 }
+
+void wsSendNewOkList()
+{
+  const int capacity = JSON_OBJECT_SIZE(3)+RFID_MAX*JSON_OBJECT_SIZE(3)+JSON_ARRAY_SIZE(RFID_MAX); //
+  StaticJsonDocument<capacity> ans;
+  ans["action"] = "newOkList";
+  JsonArray data = ans.createNestedArray("data");
+  int anzahl = rfidsOk.getDelimiterPos();
+  for (int i = 0; i < anzahl; ++i)
+  {
+    Rfid rfid = rfidsOk.getAt(i);
+    JsonObject o = data.createNestedObject();
+    o["rfid"]=rfid.id;
+    o["owner"]=rfid.owner;
+    o["extraData"] = rfid.extraData;
+  }
+  //serializeJson(ans,Serial); //das sieht gut aus
+  int len = measureJson(ans)+16;//statt +1 +16
+  char * buf = new char[len];
+  serializeJson(ans,buf,len);
+  wsMessage("Send authorized rfids from Server");
+  ws.textAll(buf);
+  delete [] buf;
+}
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) 
 {
     AwsFrameInfo *info = (AwsFrameInfo*)arg; 
@@ -142,7 +166,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           if(strcmp(doc["action"],"addNew") == 0) //neuer Eintrag vom WebInterface  in die liste der neuen (zum Testen)
           {
             newRfid = Rfid(doc["rfid"].as<String>(),doc["owner"].as<String>(),doc["extraData"].as<String>());
-            wsMessage("neues RFID hinzugefuegt, nicht authorisiert");
+            wsMessage("neuer TestEintrag");
             handleNewRFID(false); //false -> kein Zugriff auf die Karte, es ist ja keine da :-)
             //addRfidToNewList(newRfid); wird in handle... mit gemacht
           }
@@ -228,26 +252,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               wsMessage("Authorisierte RFIDs entfernt, Liste leer");
           }*/
           else if (strcmp(doc["action"],"getRfidsOk") == 0)
-          { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
-            StaticJsonDocument<capacity> ans;
-            ans["action"] = "newOkList";
-            JsonArray data = ans.createNestedArray("data");
-            int anzahl = rfidsOk.getDelimiterPos();
-            for (int i = 0; i < anzahl; ++i)
-            {
-              Rfid rfid = rfidsOk.getAt(i);
-              JsonObject o = data.createNestedObject();
-              o["rfid"]=rfid.id;
-              o["owner"]=rfid.owner;
-              o["extraData"] = rfid.extraData;
-            }
-            //serializeJson(ans,Serial); //das sieht gut aus
-            int len = measureJson(ans)+16;//statt +1 +16
-            char * buf = new char[len];
-            serializeJson(ans,buf,len);
-            wsMessage("Send authorized rfids from Server");
-            ws.textAll(buf);
-            delete [] buf;
+          {   //sende liste
+              wsSendNewOkList();
           }
           else if (strcmp(doc["action"],"getRfidsNew") == 0)
           { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
@@ -341,13 +347,39 @@ void mountFileSystem()
   
 }
 
+//zur liste hinzufuegen, ggf. erstes element löschen, clients informieren 
+void addRfidToNewList(Rfid & newRfid)
+{
+  String removeFirst = "\",\"removeFirst\":false}";
+  int found = rfidsNew.indexOfOnlyId(newRfid);
+  int anzahl = rfidsNew.getDelimiterPos();
+  if (anzahl == RFID_MAX && found == -1)
+  {
+    removeFirst = "\",\"removeFirst\":true}";
+    Serial.println("remove first");
+    wsMessage("neue RFID, Liste voll, erste entfernen");
+    rfidsNew.deleteAt(0);
+  }
+  if (rfidsNew.addNew(newRfid)) //new changed
+  {
+      ws.textAll("{\"action\":\"addNew\",\"rfid\":\""+newRfid.id+"\",\"extraData\":\""
+                    +newRfid.extraData+"\",\"owner\":\""+newRfid.owner + removeFirst);
+      //baue mein json objekt selbst, na gut, doch ein wenig laestig
+      //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
+      //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
+      wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
+  }
+}
 
-bool checkTypeAndAuthorize(byte * extraData, byte & size)
+//Operationen mit der Karte 
+// im cpp file sowohl bei read als auch bei write:
+// * For MIFARE Classic the sector containing the block must be authenticated before calling this function.
+bool authorizeAtSector()
 {
   MFRC522::PICC_Type piccType = mfrc522.PICC_GetType(mfrc522.uid.sak);
   String typeName = String("Kartentyp: ") + mfrc522.PICC_GetTypeName(piccType);
   Serial.println(typeName);
-  String message;
+  String message="";
   wsMessage(typeName.c_str());
   // Check for compatibility
   if (    piccType != MFRC522::PICC_TYPE_MIFARE_MINI
@@ -360,21 +392,21 @@ bool checkTypeAndAuthorize(byte * extraData, byte & size)
   }
 
   bool result = true;
-  //versuche mich bei der Karte zu authorisieren 
+  //versuche mich bei der Karte zu authorisieren - nein anscheinend an einem Block  
   MFRC522::StatusCode status;  
   MFRC522::MIFARE_Key key;
   const byte standardKey[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
   //versuche meinen Schluessel 
   for (byte i = 0; i < MFRC522::MF_KEY_SIZE; i++) 
         key.keyByte[i] = myKey[i];
+
   status = (MFRC522::StatusCode) mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, trailerBlock, &key, &(mfrc522.uid));
+
   if (status != MFRC522::STATUS_OK) 
   { 
     message = "PCD_Authenticate() failed mit eigenem key: ";
     message += mfrc522.GetStatusCodeName(status);
     message += " -> versuche Standardkey";
-    Serial.println(message);
-    wsMessage(message.c_str());
     for (byte i = 0; i < MFRC522::MF_KEY_SIZE; i++) 
         key.keyByte[i] = standardKey[i];
     // http://arduino.stackexchange.com/a/14316 vor jedem neu authentifizieren 
@@ -383,16 +415,13 @@ bool checkTypeAndAuthorize(byte * extraData, byte & size)
     status = (MFRC522::StatusCode) mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, trailerBlock, &key, &(mfrc522.uid));
     if (status != MFRC522::STATUS_OK) 
     {
-      message ="Fail auch mit Standardkey, gebe auf: ";
+      message +="- Fail auch mit Standardkey, gebe auf: ";
       message += mfrc522.GetStatusCodeName(status);
-      Serial.println(message);
-      wsMessage(message.c_str());
       result = false; //problem, kannn mich gar nicht authorisieren 
     }
-    else 
+    else
     {
-      Serial.println("ok, mit Standard-key authentifiziert, versuche diesen zu ueberschreiben");
-      wsMessage("ok, mit Standard-key authentifiziert, versuche diesen zu ueberschreiben");
+      message += " - ok, mit Standard-key authentifiziert, versuche diesen zu ueberschreiben";
       //siehe (sehr kurz) https://stackoverflow.com/questions/28050718/mifare-1k-authentication-keys/28051227#28051227
       //siehe https://web.archive.org/web/20150706115501/http://www.nxp.com/documents/data_sheet/MF1S503x.pdf
       //https://arduino-projekte.webnode.at/meine-projekte/zugangskontrolle-mit-rfid/access-bits/
@@ -413,50 +442,104 @@ bool checkTypeAndAuthorize(byte * extraData, byte & size)
       //beachte: keyA ist nicht lesbar, er liefert immer die 00 beim read
       if (status != MFRC522::STATUS_OK) 
       {
-        message = "MIFARE_Write() failed for own key:  ";
+        message += "MIFARE_Write() failed for own key:  ";
         message += mfrc522.GetStatusCodeName(status);        
       }
       else
-        message = "Key A von sektor 1 (Block 7) mit eigenem Key ueberschrieben, Key B ebenso, Access gesetzt ";   
-      Serial.println(message);
+        message += " Key A von sektor 1 (Block 7) mit eigenem Key ueberschrieben, Key B ebenso, Access gesetzt ";   
     }        
   }
   else 
+    message = "Mit eigenem key authentifiziert";
+  Serial.println(message);
+  wsMessage(message.c_str());
+  return result;
+}
+
+//bei der Karte authorisieren und lesen, ggf. wird der schluessel ueberschrieben 
+//die bloecke sind jeweils 16 Byte groß, aber er fordert mindestens 18 Bytes, wg. CRC
+//die size wird auch noch veraendert ...
+bool readCard(byte * extraData, byte * ownerData)
+{
+  bool result = authorizeAtSector();
+  MFRC522::StatusCode status;  
+  byte sizeE =  18;
+  byte sizeO1 =  18;
+  byte sizeO2 =  18;
+
+  if (result) //lese die daten
   {
-    Serial.println("ok, mit eigenem key authentifiziert");
-    wsMessage("ok, mit eigenem key authentifiziert");    
-  }
-  if (result) //lese die extraData
-  {
-      status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(dataBlock, extraData, &size);
-  }
+      status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(dataBlock, extraData, &sizeE);
+      if (status == MFRC522::STATUS_OK)
+          status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(dataBlock+1, ownerData, &sizeO1);
+      if (status == MFRC522::STATUS_OK)
+          status = (MFRC522::StatusCode) mfrc522.MIFARE_Read(dataBlock+2, ownerData+16, &sizeO2);
+      char message[] = "Fehler beim Einlesen der Daten von der Karte                        ";
+      if (status == MFRC522::STATUS_OK)
+        strcpy(message,"Einlesen der Daten von der Karte ok ");
+      wsMessage(message);
+      Serial.println(message);
+  } 
   return result;  
 }
 
 
-//zur liste hinzufuegen, ggf. erstes element löschen, clients informieren 
-void addRfidToNewList(Rfid & newRfid)
+//funktionen zum schreiben, interessant: der Owner geht, keine Fehlermeldung und die Daten
+//sind auf der Karte
+//die extraData gehen nicht, es kommt keine Fehlermeldung, aber es wird nicht geschrieben.
+//unklar, ob vorher eine neu authentifizierung noetig und dafor halt und stopCrypto
+//wenn ja, warum geht der owner dann ohne 
+//sehr aergerlich, mit dem PICC geht es auch beim owner nicht. 
+bool writeCardOwner(Rfid & rfid)
 {
-  String removeFirst = "\",\"removeFirst\":false}";
-  int found = rfidsNew.indexOf(newRfid);
-  int anzahl = rfidsNew.getDelimiterPos();
-  if (anzahl == RFID_MAX && found == -1)
+  MFRC522::StatusCode status;  
+  byte buffer[36];
+  memset(buffer,0,36); 
+  
+  bool result = true;// authorizeAtSector();
+  String message = "Owner der Karte geschrieben";
+  if (result) //
   {
-    removeFirst = "\",\"removeFirst\":true}";
-    Serial.println("remove first");
-    wsMessage("neue RFID, Liste voll, erste entfernen");
-    rfidsNew.deleteAt(0);
+    rfid.ownerToByteArray(buffer); //maximal 32 Byte
+    status = (MFRC522::StatusCode) mfrc522.MIFARE_Write(dataBlock+1, buffer, 16);
+    if (status == MFRC522::STATUS_OK)
+      status = (MFRC522::StatusCode) mfrc522.MIFARE_Write(dataBlock+2, buffer+16, 16);    
+    if (status != MFRC522::STATUS_OK)
+      message = "Probleme beim Schreiben des Owners";
   }
-  if (rfidsNew.addNew(newRfid)) //new changed
-  {
-      ws.textAll("{\"action\":\"addNew\",\"rfid\":\""+newRfid.id+"\",\"extraData\":\""
-                    +newRfid.extraData+"\",\"owner\":\""+newRfid.owner + removeFirst);
-      //baue mein json objekt selbst, na gut, doch ein wenig laestig
-      //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
-      //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
-      wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
-  }
+  else
+    message = "Schreibe owner - Kann mich nicht an der Karte authorisieren";
+  wsMessage(message.c_str());
+  Serial.println(message);
+  return result;
 }
+
+bool writeCardExtraData(Rfid & rfid)
+{
+  MFRC522::StatusCode status;  
+
+  byte buffer[18];
+  memset(buffer,0,18); 
+  bool result = true;// authorizeAtSector();
+  String message = "Extradata der Karte geschrieben";
+  if (result) //
+  {
+    rfid.extraDataToByteArray(buffer); //maximal 16 Byte
+    Serial.print("in Write Card Extra");
+    Serial.println(rfid);
+    status = (MFRC522::StatusCode) mfrc522.MIFARE_Write(dataBlock, buffer, 16);
+    if (status != MFRC522::STATUS_OK)
+      message = "Probleme beim Schreiben der Extradaten";
+  }
+  else
+    message = "Schreibe extraData - Kann mich nicht an der Karte authorisieren";
+  wsMessage(message.c_str());
+  Serial.println(message);
+  return result;
+}
+
+//--------------------------------------------------------------
+
 
 
 //behandle Rfid, das vom reader gelesen wurde, wird zur liste der neuen hinzugefuegt falls neu, falls vorhanden wird das relais geschaltet
@@ -469,9 +552,10 @@ void handleNewRFID(bool rwPhysicalCard) {
     //StaticJsonDocument<capacity> doc;    
     //auf schalten checken, nur wenn nicht vor 2 Sekunden bereits geschaltet wurde
     unsigned long time = millis() - triggerStartTime;
-    byte extraData[18]; //16 sollten reichen im readWrite Beispiel werden 18 verwendet
+    byte extraData[18]; //16 sollten reichen im readWrite Beispiel werden 18 verwendet, nein, 18 wg crc
+    byte ownerData[36]; //32 sollten reichen
     byte size = sizeof(extraData); 
-    String message;
+    String message = "";
       
     //if (newRfid.valid)
     {
@@ -485,36 +569,69 @@ void handleNewRFID(bool rwPhysicalCard) {
       //und lesse aus sektor 1 die extra daten (16 Byte)
       if (rwPhysicalCard)
       {
-        bool result = checkTypeAndAuthorize(extraData,size);
+        bool result = readCard(extraData,ownerData);
         if (!result)
         {
           message = "Die Karte kann ich nicht verarbeiten";
           Serial.println(message);
           wsMessage(message.c_str());
           return; 
-        }//ansonsten bin ich authorisiert
+        }//ansonsten bin ich bei der Karte zum lesen/schreiben authorisiert
         newRfid.setExtraData(extraData);
+        newRfid.setOwner(ownerData);
       }
       /* folgende Fälle sind moeglich
         1) Karte ist neu dazugekommen -> sie kann hinzugefuegt werden
         2) Karte ist vorhanden, aber die extraData stimmen nicht -> kopierte Karte verwendet - kritisch?
-        3) Karte ist vorhanden, extraData stimmen -> öffnen, extraData ändern, auf Karte und in chip speichern
+        3) Karte ist vorhanden, finde sie nicht in vorhandener Liste, da Owner nicht gespeichert 
+                -> sie wurde nochmal davor gehalten um den Owner zu speichern
+        4) Karte ist vorhanden, extraData und Owner stimmen -> öffnen, extraData ändern, auf Karte und in chip speichern
       */
       
-       //if (rfidsOk.indexOf(newRfid) != -1)
-      if (rfidsOk.indexOfOnlyId(newRfid) != -1) //authorisierung verbessern
+      //if (rfidsOk.indexOfOnlyId(newRfid) != -1) //authorisierung verbessern
+      int foundToCheck = rfidsOk.indexOfOnlyId(newRfid);
+      int found = rfidsOk.indexOf(newRfid);
+      rfidsOk.serialPrint();
+      Serial.println(newRfid);   
+      if ( found != -1) //alles muss stimmen um Relais zu schalten
       {
         message = newRfid.id + " ist authorisiert, schalte das Relais";
-        wsMessage(message.c_str());
+        if (rwPhysicalCard)
+        {
+          message += " setzte extraData neu ";
+          newRfid.generateExtraData(); // zufällig
+          rfidsOk.getAt(found).extraData = newRfid.extraData;
+          writeCardExtraData(newRfid);
+          rfidsOk.saveToFile(); //neue extradata auf Karte und in File
+          rfidsOk.serialPrint();
+          Serial.println(newRfid);   
+          wsSendNewOkList();
+        }
         //triggerStartTime = millis();
         digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
         delay(200);
         digitalWrite(RELAIS_PIN,LOW);
+        
+      }
+      else if ( foundToCheck != -1) //die ID ist da
+      {
+        if (rfidsOk.getAt(foundToCheck).owner != newRfid.owner && rwPhysicalCard)
+        {
+          message =  "schreibe Owner, beim nächsten Versuch wird geschaltet"; 
+          writeCardOwner(rfidsOk.getAt(foundToCheck));          
+        }
+        if (rfidsOk.getAt(foundToCheck).extraData != newRfid.extraData)
+        { 
+          message = "extraDaten stimmen nicht, kopie einer Karte?";
+        }
       }
       else
       {//nicht vorhandenes gelesen
         addRfidToNewList(newRfid);
+        message = "Neue Karte gefunden";
       } 
+      wsMessage(message.c_str());
+      Serial.println(message);
     }//ende newRfid gueltig, denke das brauche ich nicht
 }
 void IRAM_ATTR isr() {

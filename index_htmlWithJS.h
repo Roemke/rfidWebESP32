@@ -12,6 +12,13 @@ const char index_html[] PROGMEM = R"rawliteral(
        border: 1px solid black; 
        padding: 1em;
       }
+      li input  {
+        width: 15em;
+      }
+      input:nth-of-type(2){
+        width: 25em;
+      }
+      
       #divNachrichten {
         border: 1px solid blue;
         padding: 1em;
@@ -119,7 +126,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 newNode = htmlToElement("<li><button type='button'>add</button> " + 
                       "<input type='text' value='" +data.rfid+"' readonly>"+
                       "<input type='text' value='" +data.extraData +"' readonly>" +
-                      "<input type='text' value='" +data.owner+"'></li>");
+                      "<input type='text' maxlength='32' value='" +data.owner+"'></li>");
                 newList.append(newNode);
                 newNode.children[0].addEventListener("click",addClicked);//der button                                 
                 /*
@@ -184,7 +191,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                   newNode = htmlToElement("<li><button type='button'>add</button> " + 
                       "<input type='text' value='" +entry.rfid+"' readonly>"+
                       "<input type='text' value='" +entry.extraData+"' readonly>"+
-                      "<input type='text' value='" +entry.owner+"'></li>");
+                      "<input type='text' maxlength='32' value='" +entry.owner+"'></li>");
                   
                   newNode.children[0].addEventListener("click",addClicked);//der button                                 
                   newList.append(newNode);
@@ -226,6 +233,10 @@ const char index_html[] PROGMEM = R"rawliteral(
         {
            websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':3000}));//in drei Sekunden
         });
+        document.getElementById('bClear').addEventListener("click",() => 
+        { 
+          document.getElementById('iMessage').innerHTML = "";
+        });
         
         /*heraus genommen 
         document.getElementById('bSaveToServer').addEventListener("click",() =>
@@ -263,12 +274,12 @@ const char index_html[] PROGMEM = R"rawliteral(
     <form> 
      <span>Eintrag zum Test:</span>
       <input id='testEintrag' placeholder='RFIDid' type='text'>
-      <input id='testExtraData' placeholder='extraData' type='text'>
-      <input id='testOwner' placeholder='Owner' type='text'>
+      <input id='testExtraData' placeholder='extraData' maxlength='32' type='text'>
+      <input id='testOwner' placeholder='Owner' type='text' maxlength='32'>
       <button type='button' id='bTestEintrag'>go</button>
     </form>
     <div id='divNachrichten'>
-     Nachrichten:
+     Nachrichten <button id='bClear' type='button'>(clear)</button>: 
      <p id="iMessage">
      </p>
     </div>
