@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
+#include <Preferences.h>        
 #include <AsyncTCP.h>
 #include <ESPAsyncWebSrv.h>
 #include <AsyncElegantOTA.h>//mist, der braucht den ESPAsyncWebServer, habe mal in der Bibliothek angepasst, so dasss es auch it ESPAsyncWebSrv.h geht
@@ -24,11 +25,9 @@
  * auf der WebSite findet sich ein calculator für den Speicher
  */
 
-//in credentials.h
+//in credentials.h, s. auch credentials_template.h
 //#define mySSID "todo"
 //#define myPASSWORD "passwort"
-
-
 const char * ssid = mySSID;
 const char *password = myPASSWORD;
 
@@ -48,7 +47,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 byte trailerBlock   = 7; //in Block 7 muesste der Schluessel A AccesBytes Schluessel B für Sektor 1 stehen
 byte dataBlock      = 4; //Dort Beginn der Daten von Sektor 1
 
-bool simuliereChipWedelnByTesteintrag = false;
+bool schlossStatusOpen = false;
 
 AsyncWebServer server(80);
 //fuer den Websocket
@@ -97,6 +96,11 @@ String processor(const String& var)
 
 
 
+void wsMsgSerial(const char *message)
+{
+  wsMessage(message);
+  Serial.println(message);
+}
 void wsMessage(const char *message)
 { 
   const char * begin = "{\"action\":\"message\",\"text\":\"";
@@ -107,6 +111,17 @@ void wsMessage(const char *message)
   strcat(str,end);
   ws.textAll(str);
   delete [] str;
+}
+
+void schalteRelais()
+{
+  schlossStatusOpen = !schlossStatusOpen;
+  savePreferences();
+  ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\"" + String(schlossStatusOpen) + "\"}" );
+  wsMsgSerial("Geschaltet per webinterface oder Karte damit auch Statusänderung");
+  digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
+  delay(200);
+  digitalWrite(RELAIS_PIN,LOW);
 }
 
 void wsSendNewOkList()
@@ -128,7 +143,7 @@ void wsSendNewOkList()
   int len = measureJson(ans)+16;//statt +1 +16
   char * buf = new char[len];
   serializeJson(ans,buf,len);
-  wsMessage("Send authorized rfids from Server");
+  wsMsgSerial("Send authorized rfids from Server");
   ws.textAll(buf);
   delete [] buf;
 }
@@ -166,7 +181,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           if(strcmp(doc["action"],"addNew") == 0) //neuer Eintrag vom WebInterface  in die liste der neuen (zum Testen)
           {
             newRfid = Rfid(doc["rfid"].as<String>(),doc["owner"].as<String>(),doc["extraData"].as<String>());
-            wsMessage("neuer TestEintrag");
+            wsMsgSerial("neuer TestEintrag");
             handleNewRFID(false); //false -> kein Zugriff auf die Karte, es ist ja keine da :-)
             //addRfidToNewList(newRfid); wird in handle... mit gemacht
           }
@@ -174,21 +189,11 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           {
             wsMessage(startmeldungen.htmlLines().c_str());
           }
-          else if (strcmp(doc["action"],"keepWebServerAlive")==0) 
-          {
-            startTime = millis();
-            keepWebServerAlive = (unsigned long ) doc["time"]; //0 fuer ewig
-            Serial.print("Zeit : ");
-            Serial.println((unsigned long ) doc["time"]);
-            String msg("Zeit bis zum Stopp des Webservers: ");
-            msg += keepWebServerAlive; 
-            wsMessage(msg.c_str());
-          }
           else if(strcmp(doc["action"],"clearNew") == 0)
           {
             rfidsNew.clear();
             ws.textAll("{\"action\":\"clearNew\"}");
-            wsMessage("Neu gelesene geloescht");
+            wsMsgSerial("Neu gelesene geloescht");
           }
           else if (strcmp(doc["action"],"addAuthorized") ==0)
           {
@@ -206,14 +211,13 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
                         "\",\"extraData\":\""+rfid.extraData + 
                         "\",\"owner\":\""+rfid.owner+"\"}");
                 //da er nur von new kommen kann, impliziert das das löschen in der New-Liste
-                wsMessage("hinzugefuegt zu  authorisierten");
+                wsMsgSerial("hinzugefuegt zu  authorisierten");
               }
               else 
-                wsMessage("Versuch zu viele in die authorized Liste einzufuegen oder nicht eindeutig, abgelehnt");
+                wsMsgSerial("Versuch zu viele in die authorized Liste einzufuegen oder nicht eindeutig, abgelehnt");
           }
           else if (strcmp(doc["action"],"removeAuthorized") ==0)
           {
-              Serial.println("Try to delete from authorized " ); 
               String id =  (const char *) doc["rfid"];
               String owner = (const char *) doc["owner"];
               String extraData = (const char *) doc["extraData"];
@@ -224,7 +228,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               ws.textAll(message);
               
               Rfid rfid(id,owner,extraData);               
-              wsMessage("entferne von authorisierten");
+              wsMsgSerial("entferne von authorisierten");
               rfidsOk.deleteEntry(rfid);
               rfidsOk.saveToFile();
               //fueger zur NewListe hinzu
@@ -270,13 +274,49 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               o["owner"]=rfid.owner;   
             }            
             //serializeJson(ans,Serial); //das sieht gut aus
-            wsMessage("Send new rfids from Server");
+            wsMsgSerial("Send new rfids from Server");
             int len = measureJson(ans)+16;//statt +1 +16
             char * buf = new char[len];
             serializeJson(ans,buf,len);
             ws.textAll(buf);
             delete [] buf;
-          }          
+          }
+          else if (strcmp(doc["action"],"keepWebServerAlive")==0) 
+          {
+            startTime = millis();
+            keepWebServerAlive = (unsigned long ) doc["time"]; //0 fuer ewig
+            Serial.print("Zeit : ");
+            Serial.println((unsigned long ) doc["time"]);
+            String msg("Zeit bis zum Stopp des Webservers: ");
+            msg += keepWebServerAlive; 
+            wsMsgSerial(msg.c_str());
+          }
+          else if (strcmp(doc["action"],"rebootESP")==0)
+          {
+            ESP.restart();
+            wsMsgSerial("Restart of ESP");
+          }
+          else if (strcmp(doc["action"],"resetMFRC")==0)
+          {
+            mfrc522.PCD_Reset(); //ob das reicht?  
+            mfrc522.PCD_Init();
+            wsMsgSerial("Reset of MFRC 522");
+          }
+          else if (strcmp(doc["action"],"getStatus")==0)
+          {
+            ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );
+          }
+          else if (strcmp(doc["action"],"aendereStatus")==0)
+          {
+            schlossStatusOpen = !schlossStatusOpen;
+            savePreferences(); 
+            wsMsgSerial("Statusänderung ohne zu schalten");
+            ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );
+          }
+          else if (strcmp(doc["action"],"schalte")==0)
+          {
+            schalteRelais();
+          }
         }
         //Serial.println("Rfids2");
         //rfidsOk.serialPrint();
@@ -320,9 +360,42 @@ void onWSEvent(AsyncWebSocket       *server,  //
      }
 }
 
-
+Preferences prefs;
+const char * keySchlossStatusOpen ="kSOpen"; //max 13 chars 
+void savePreferences()
+{
+  String message="Status des Schlosses gespeichert";
+  if (prefs.putBool(keySchlossStatusOpen, schlossStatusOpen) == 0)
+    message="Probleme beim Speichern des Schloss-Status";
+  wsMsgSerial(message.c_str());    
+}
 void mountFileSystem()
-{ // versuchen, ein vorhandenes Dateisystem einzubinden
+{ // versuchen, ein vorhandenes Dateisystem einzubinden und erzeuge key in preferences bei bedarf 
+  // vorher noch die preferences, sind ja auch irgendwo gespeichert
+  //preference-Datei laden, dort gibt es bisher nur eine einstellung - offen oder geschlossen
+  //man könnte die letzte Verbindung zum Internet dort ablegen und dann immer das letzte Wifi-connecten
+  //key anlegen, so nicht da 
+  if (!prefs.begin("rfid", false)) //false - readonly auf false
+  {
+    wsMsgSerial("Fehler beim öffnen der Preferences, versuche Restart");
+    ESP.restart();    
+  }
+  if (prefs.isKey(keySchlossStatusOpen)) 
+  {
+    schlossStatusOpen =  prefs.getBool(keySchlossStatusOpen);
+    
+    ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );    
+  }
+  else //schluesselanlegen und schreiben 
+    prefs.putBool(keySchlossStatusOpen,schlossStatusOpen);
+  //gebe Info heraus 
+  String msg = "habe Preferences gelesen, habe freeEntries: " ;
+  msg += prefs.freeEntries();
+  msg += "Status Lesen / Schreiben: "; 
+  startmeldungen.add(msg);
+  Serial.println(msg);
+    
+  //jetzt das Dateisystem
   if (!LittleFS.begin(false)) 
   {
     Serial.println("LittleFS Mount fehlgeschlagen");
@@ -335,7 +408,7 @@ void mountFileSystem()
       Serial.println("Formatierung nicht möglich");
       return;
     } else {
-      Serial.println("Formatierung des Dateisystems erfolgt");
+      Serial.println("Formatierung d/es Dateisystems erfolgt");
     }
   }
   Serial.println("Informationen zum Dateisystem:");
@@ -344,7 +417,6 @@ void mountFileSystem()
   startmeldungen.add("Dateisystem");
   startmeldungen.add("Bytes total: " + String(LittleFS.totalBytes()));
   startmeldungen.add("Bytes used: " + String(LittleFS.usedBytes()));
-  
 }
 
 //zur liste hinzufuegen, ggf. erstes element löschen, clients informieren 
@@ -356,8 +428,7 @@ void addRfidToNewList(Rfid & newRfid)
   if (anzahl == RFID_MAX && found == -1)
   {
     removeFirst = "\",\"removeFirst\":true}";
-    Serial.println("remove first");
-    wsMessage("neue RFID, Liste voll, erste entfernen");
+    wsMsgSerial("neue RFID, Liste voll, erste entfernen");
     rfidsNew.deleteAt(0);
   }
   if (rfidsNew.addNew(newRfid)) //new changed
@@ -367,7 +438,7 @@ void addRfidToNewList(Rfid & newRfid)
       //baue mein json objekt selbst, na gut, doch ein wenig laestig
       //die uebertragung der anderen daten wird per post gemacht und dann liefere ich die ganze Seite selbst - ansonsten wuerde sich ArduinoJson wohl doch lohnen
       //nein, ich denke, das mache ich auch über die WebSockets, mal sehen, wie ich sende, also doch websockets
-      wsMessage("Neues Element in die Liste der gelesenen aufgenommen");
+      wsMsgSerial("Neues Element in die Liste der gelesenen aufgenommen");
   }
 }
 
@@ -378,16 +449,14 @@ bool authorizeAtSector()
 {
   MFRC522::PICC_Type piccType = mfrc522.PICC_GetType(mfrc522.uid.sak);
   String typeName = String("Kartentyp: ") + mfrc522.PICC_GetTypeName(piccType);
-  Serial.println(typeName);
   String message="";
-  wsMessage(typeName.c_str());
+  wsMsgSerial(typeName.c_str());
   // Check for compatibility
   if (    piccType != MFRC522::PICC_TYPE_MIFARE_MINI
     &&  piccType != MFRC522::PICC_TYPE_MIFARE_1K
     &&  piccType != MFRC522::PICC_TYPE_MIFARE_4K) 
   {//evtl. geht es nur mit der MIFARE_1K
-    Serial.println(F("geht nur mit MIFARE Classic cards."));
-    wsMessage("klappt nur mit MIFARE Classic");
+    wsMsgSerial("klappt nur mit MIFARE Classic");
     return false;
   }
 
@@ -451,8 +520,7 @@ bool authorizeAtSector()
   }
   else 
     message = "Mit eigenem key authentifiziert";
-  Serial.println(message);
-  wsMessage(message.c_str());
+  wsMsgSerial(message.c_str());
   return result;
 }
 
@@ -477,8 +545,7 @@ bool readCard(byte * extraData, byte * ownerData)
       char message[] = "Fehler beim Einlesen der Daten von der Karte                        ";
       if (status == MFRC522::STATUS_OK)
         strcpy(message,"Einlesen der Daten von der Karte ok ");
-      wsMessage(message);
-      Serial.println(message);
+      wsMsgSerial(message);
   } 
   return result;  
 }
@@ -509,8 +576,7 @@ bool writeCardOwner(Rfid & rfid)
   }
   else
     message = "Schreibe owner - Kann mich nicht an der Karte authorisieren";
-  wsMessage(message.c_str());
-  Serial.println(message);
+  wsMsgSerial(message.c_str());
   return result;
 }
 
@@ -533,8 +599,7 @@ bool writeCardExtraData(Rfid & rfid)
   }
   else
     message = "Schreibe extraData - Kann mich nicht an der Karte authorisieren";
-  wsMessage(message.c_str());
-  Serial.println(message);
+  wsMsgSerial(message.c_str());
   return result;
 }
 
@@ -573,8 +638,7 @@ void handleNewRFID(bool rwPhysicalCard) {
         if (!result)
         {
           message = "Die Karte kann ich nicht verarbeiten";
-          Serial.println(message);
-          wsMessage(message.c_str());
+          wsMsgSerial(message.c_str());
           return; 
         }//ansonsten bin ich bei der Karte zum lesen/schreiben authorisiert
         newRfid.setExtraData(extraData);
@@ -608,10 +672,7 @@ void handleNewRFID(bool rwPhysicalCard) {
           wsSendNewOkList();
         }
         //triggerStartTime = millis();
-        digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
-        delay(200);
-        digitalWrite(RELAIS_PIN,LOW);
-        
+        schalteRelais();
       }
       else if ( foundToCheck != -1) //die ID ist da
       {
@@ -630,8 +691,7 @@ void handleNewRFID(bool rwPhysicalCard) {
         addRfidToNewList(newRfid);
         message = "Neue Karte gefunden";
       } 
-      wsMessage(message.c_str());
-      Serial.println(message);
+      wsMsgSerial(message.c_str());
     }//ende newRfid gueltig, denke das brauche ich nicht
 }
 void IRAM_ATTR isr() {
@@ -715,7 +775,7 @@ void loop() {
   long running = millis()-startTime;
   if (keepWebServerAlive && running > keepWebServerAlive) //wenn keepWebServerAlive gesetzt und die Laufzeit größer ist, dann herunter fahren
   {
-      wsMessage("esp says: Zeit abgelaufen, stoppe Server, rfid is running");
+      wsMsgSerial("esp says: Zeit abgelaufen, stoppe Server, rfid is running");
       ws.closeAll();
       server.end();
       WiFi.disconnect(true);  // Disconnect from the network
@@ -740,8 +800,7 @@ void loop() {
     //überschreiben der alten ID mit der neuen
     newRfid = Rfid(newRfidId,"");
     String msg = "gelesene RFID-ID: " + newRfid;
-    Serial.println(msg);
-    //wsMessage(msg.c_str());    // Dump debug info about the card; PICC_HaltA() is automatically called
+    wsMsgSerial(msg.c_str());    // Dump debug info about the card; PICC_HaltA() is automatically called
     //mfrc522.PICC_DumpToSerial(&(mfrc522.uid));
 
     handleNewRFID(true); //wenn neu, dann hinzufügen ermöglichen, wenn vorhanden, dann schalten

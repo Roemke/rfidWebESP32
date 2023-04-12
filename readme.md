@@ -99,7 +99,7 @@ Das geht nicht, wenn man die Vordertüren über ein Stahlseil verbunden hat, der
 dafür, dass auch der Schalter an der Mittelkonsole wieder funktioniert. Einmal Drücken schließt ab, nochmal alles wieder auf. Das geht 
 dann auch mit dem Relais.  
 
-## Danke & Sonstiges 
+## Danke, Sonstiges, Probleme 
 
 * an die Autoren unzähliger Codeschnipsel, die ich gefunden habe - wirklich schwierig fand ich nur den Zugriff auf die RFID-Karte, mir 
 ist immer noch nicht klar, wan man welche Funktion aufrufen muss - so läuft es auf jeden Fall erst mal :-), wenn mir auch unklar ist wie ich 
@@ -109,5 +109,10 @@ den ESP in den Tiefschlaf versetzen, bzw. wieder aufwecken kann
 Natürlich kann das ganze nach Belieben verwendet werden, wenn Fehler auffallen gern eine Nachricht an mich.
 
 Es wird sicher einige Fehler geben, ich habe Jahre kein C/C++ mehr geschrieben, ich bitte um Nachsicht ...
+
+Probleme: Der Leser hängt sich manchmal auf, wenn es einen Fehler gibt, daher einen Knopf in's Webinterface gesetzt, der ein 
+Reset des Lesers ermöglicht. Hatte aber einmal den Fall, dass dies nicht reichte - per reset des ESP ging es dann wieder. Hmm, 
+Fehler treten natürlich eher auf, wenn die ExtraData jedesmal gelesen und geschrieben werden. Vielleicht gibt es noch eine 
+bessere Möglichkeit den Leser zu resetten, so bleibt es erstmal bei der Möglichkeit den ESP per Web-Interface neu zu starten.
 
  
