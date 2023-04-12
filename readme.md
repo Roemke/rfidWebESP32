@@ -76,7 +76,7 @@ Das geht.
 Sparen lässt sich durch Verwendung eines "reinen ESP". Dann fällt der USB Kram weg, aber ich habe eigentlich keine
 Lust mehr dazu. Sinnvoll wäre vielleicht doch der deep-Sleep. Ach nee, alles zuviel Aufwand...
 
-Verdrahtung in der Datei platine.txt notiert
+Verdrahtung in der Datei platine.txt notiert.
 
 ## Änderungen
 Das schalten nur über die UID ist natürlich nicht sonderlich sicher. Bei den MIFARE 1k Karten (die sind günstig) gibt es zwar die Möglichkeit
