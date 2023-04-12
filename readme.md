@@ -102,8 +102,7 @@ dann auch mit dem Relais.
 ## Danke, Sonstiges, Probleme 
 
 * an die Autoren unzähliger Codeschnipsel, die ich gefunden habe - wirklich schwierig fand ich nur den Zugriff auf die RFID-Karte, mir 
-ist immer noch nicht klar, wan man welche Funktion aufrufen muss - so läuft es auf jeden Fall erst mal :-), wenn mir auch unklar ist wie ich 
-den ESP in den Tiefschlaf versetzen, bzw. wieder aufwecken kann
+ist immer noch nicht klar, wann man welche Funktion aufrufen muss - so läuft es auf jeden Fall erst mal :-) 
 * an die Menschen aus dem Pösslforum, dort habe ich bei Romeo zum ersten mal von der Idee gelesen und die Bilder von Mats waren extrem hilfreich. 
 
 Natürlich kann das ganze nach Belieben verwendet werden, wenn Fehler auffallen gern eine Nachricht an mich.
@@ -115,4 +114,5 @@ Reset des Lesers ermöglicht. Hatte aber einmal den Fall, dass dies nicht reicht
 Fehler treten natürlich eher auf, wenn die ExtraData jedesmal gelesen und geschrieben werden. Vielleicht gibt es noch eine 
 bessere Möglichkeit den Leser zu resetten, so bleibt es erstmal bei der Möglichkeit den ESP per Web-Interface neu zu starten.
 
+Bisher keine Möglichkeit gefunden, den ESP in den Tiefschlaf zu versetzen und ihn daraus wieder mit dem RFID-Leser aufzuwecken.  
  
