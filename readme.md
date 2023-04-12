@@ -69,8 +69,7 @@ Daher AsyncElegantOta -> Achtung, musste im h-File einen include aendern, statt 
 ## Energiebedarf und Kabel
 Am 12,8 Volt nimmt er ca 90mA. Bei WebAktivität und schalten natürlich mehr, schwer zu sehen, ich denke so um die 150mA.
 WiFi aus -> es sind noch 84mA, da hatte ich mir weniger Energie erhofft. Mal sehen, ob man noch etwas abschalten kann.
-Also in dem Zustand ein Watt, finde ich zu viel :-(, bringt mich aber nicht um 
-Hoffe, die Einschaltströme sind nicht zu hoch.
+Also in dem Zustand ein Watt, finde ich zu viel :-(, bringt mich aber nicht um.  
 Kabelquerschnitte dürften für die Energie recht egal sein. Versuche mal für die langen Kabel zum RFID-Leser 0,25mm²
 Das geht. 
 
