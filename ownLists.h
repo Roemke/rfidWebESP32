@@ -62,7 +62,7 @@ class Rfid {
     }
     String getAsString(const char sep = '|') const
     {
-      return id + sep + owner + sep + extraData;
+      return id + String(sep) + owner + String(sep) + extraData;
     }
     
     void setExtraData(byte * eD)

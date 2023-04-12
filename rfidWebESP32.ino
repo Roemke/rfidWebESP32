@@ -8,6 +8,8 @@
 #include <ArduinoJson.h>   
 #include <SPI.h>
 #include <MFRC522.h>
+#include <ESP_Mail_Client.h>
+
 #include "credentials.h" //erstellen, s. credentials_template.h
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
@@ -31,13 +33,13 @@
 const char * ssid = mySSID;
 const char *password = myPASSWORD;
 
-
 //definieren der Pins  RST & SDA für den ESP32 und MFRC522
 #define RST_PIN     22
 #define SS_PIN      21
 
 #define RELAIS_PIN 16
 #define IRQ_PIN 15 
+
 
 
 //erzeugen einer Objektinstanz
@@ -70,6 +72,95 @@ ObjectList <String> startmeldungen(16); //dient zum Puffern der Meldungen am Anf
 
 Rfid newRfid;
 
+
+//mail funktion -----------------------------------------------------------------------
+#define SMTP_HOST "smtp.gmail.com"
+#define SMTP_PORT esp_mail_smtp_port_587
+//weitere Daten in credentials.h
+SMTPSession smtp;
+Session_Config config;
+
+//Der Callback welcher ausgeführt werden soll wenn das versenden der E-Mail erfolgte.
+void smtpCallback(SMTP_Status status){
+  Serial.println(status.info());
+  if (status.success()){
+    Serial.println("----------------");
+    ESP_MAIL_PRINTF("Message sent success: %d\n", status.completedCount()); //fuer esp32 ginge auch Serial.print direkt
+    ESP_MAIL_PRINTF("Message sent failled: %d\n", status.failedCount());
+    Serial.println("----------------\n");
+    struct tm dt;
+
+    for (size_t i = 0; i < smtp.sendingResult.size(); i++) {
+      /* Get the result item */
+      SMTP_Result result = smtp.sendingResult.getItem(i);
+      time_t ts = (time_t)result.timestamp;
+      localtime_r(&ts, &dt);
+
+      ESP_MAIL_PRINTF("Message No: %d\n", i + 1);
+      ESP_MAIL_PRINTF("Status: %s\n", result.completed ? "success" : "failed");
+      ESP_MAIL_PRINTF("Date/Time: %d/%d/%d %d:%d:%d\n", dt.tm_year + 1900, dt.tm_mon + 1, dt.tm_mday, dt.tm_hour, dt.tm_min, dt.tm_sec);
+      ESP_MAIL_PRINTF("Recipient: %s\n", result.recipients);
+      ESP_MAIL_PRINTF("Subject: %s\n", result.subject);
+    }
+    Serial.println("----------------\n");
+    smtp.sendingResult.clear();
+  }
+}
+void setupMail() 
+{
+   /*  Set the network reconnection option */
+  MailClient.networkReconnect(true); //MailClient wird in der .h extern definiert und findet sich in der .cpp?
+    smtp.debug(1);
+
+  /* Set the callback function to get the sending results */
+  smtp.callback(smtpCallback);
+  /* Set the session config */
+  config.server.host_name = SMTP_HOST;
+  config.server.port = SMTP_PORT;
+  config.login.email = AUTHOR_EMAIL;
+  config.login.password = AUTHOR_PASSWORD;
+  config.login.user_domain = SMTP_HOST;
+
+  /* Set the NTP config time */
+  config.time.ntp_server = F("pool.ntp.org,time.nist.gov");
+  config.time.gmt_offset = 1;
+  config.time.day_light_offset = 1;
+  
+}
+
+void sendMailMessage(char * subj, char * text)
+{
+  //Aufbau der E-Mail
+  /* Declare the message class */
+  SMTP_Message message;
+
+  /* Set the message headers */
+  message.sender.name = F("ESP32 RFID Mail");
+  message.sender.email = AUTHOR_EMAIL;
+  message.subject = subj;
+  message.addRecipient("Karsten Roemke", RECIPIENT_EMAIL);
+
+  String textMsg = text;
+  message.text.content = textMsg;
+  message.text.charSet = F("utf-8");
+  message.text.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+
+  message.priority = esp_mail_smtp_priority::esp_mail_smtp_priority_low;
+
+  String headerA = "Message-ID: <";
+  headerA += AUTHOR_EMAIL;
+  headerA += ">";
+  message.addHeader(headerA.c_str());
+
+  if (!smtp.connect(&config))
+  {
+    ESP_MAIL_PRINTF("Connection error, Status Code: %d, Error Code: %d, Reason: %s", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+    return;
+  }
+
+  
+}
+//------------------------------------------
 //viele Funktionen anonym, bzw. als Lambda Ausdruck, hier der Rest zum Server-Kram
 void notFound(AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found - ich kann das nicht");
@@ -293,8 +384,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           }
           else if (strcmp(doc["action"],"rebootESP")==0)
           {
-            ESP.restart();
-            wsMsgSerial("Restart of ESP");
+            wsMsgSerial("Versuchte eine Mail zu senden");
+            sendMailMessage("Subject not set", "First message, reset pressed");
+            //ESP.restart();
+            //wsMsgSerial("Restart of ESP");
           }
           else if (strcmp(doc["action"],"resetMFRC")==0)
           {
@@ -768,6 +861,7 @@ void setup() {
   startTime = millis();
   mfrc522.PCD_DumpVersionToSerial();  // Show details of PCD - MFRC522 Card Reader details
 
+  setupMail(); 
 }
 
 void loop() {
