@@ -1,5 +1,9 @@
 # rfidWebESP32
 
+Strange, habe versucht die Mail-Geschichte einzubauen - bekomme Fehler beim operator overloading anscheinend definiert die Bibliothek auch 
+etwas. Außerdem verwendet Sie anscheinend eine Alte Wifi Geschichte. Ich bekomme 0x72 statt 0x92 angezeigt, so wird es nicht gehen. 
+
+
 RFIDs lesen und Relais schalten
 RFIDs lesen und den Erlaubten hinufügen
 RFIDs aus Liste der Erlaubten entfernen 
