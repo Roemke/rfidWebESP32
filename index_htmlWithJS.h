@@ -77,7 +77,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
       }
     </style>
     <script>
-      var gateway = `ws://192.168.0.69/ws`;
+      var gateway = `ws://${window.location.hostname}/ws`;
       var websocket;
       function htmlToElement(html) 
       {
