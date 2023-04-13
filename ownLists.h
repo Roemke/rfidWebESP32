@@ -62,7 +62,7 @@ class Rfid {
     }
     String getAsString(const char sep = '|') const
     {
-      return id + sep + owner + sep + extraData;
+      return id + String(sep) + owner + String(sep) + extraData;
     }
     
     void setExtraData(byte * eD)
@@ -251,6 +251,7 @@ template <typename T>class ObjectList {
       }
       return index;
     }
+    //damit ist die Funktion nicht mehr generisch sondern sehr speziell für das rfid-Objekt 
     int indexOfOnlyId(const T & o)
     {
       int index = -1;

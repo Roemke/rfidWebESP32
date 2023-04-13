@@ -113,5 +113,8 @@ Reset des Lesers ermöglicht. Hatte aber einmal den Fall, dass dies nicht reicht
 Fehler treten natürlich eher auf, wenn die ExtraData jedesmal gelesen und geschrieben werden. Vielleicht gibt es noch eine 
 bessere Möglichkeit den Leser zu resetten, so bleibt es erstmal bei der Möglichkeit den ESP per Web-Interface neu zu starten.
 
-Bisher keine Möglichkeit gefunden, den ESP in den Tiefschlaf zu versetzen und ihn daraus wieder mit dem RFID-Leser aufzuwecken.  
+Die Branches development und WithEmail sollten momentan eine Erweiterung um das Senden von EMails enthalten. Der Programm-Speicherplatz ist allerdings dadurch recht voll geworden. 
+Ist natürlich alles nur am Schreibtisch getestet. 
+
+open: Bisher keine Möglichkeit gefunden, den ESP in den Tiefschlaf zu versetzen und ihn daraus wieder mit dem RFID-Leser aufzuwecken.  
  

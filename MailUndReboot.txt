@@ -1,0 +1,25 @@
+Vermute: Nur für die Mail-Version relevant:
+Interessant, bekomme reboots, wenn ich eine Mail auf Button-Press sende, Fehlermeldung:
+10:32:33.016 -> > C: perform the SSL/TLS handshake 
+10:32:33.787 -> E (73247) task_wdt: Task watchdog got triggered. The following tasks did not reset the watchdog in time:
+10:32:33.820 -> E (73247) task_wdt:  - async_tcp (CPU 1)
+10:32:33.820 -> E (73247) task_wdt: Tasks currently running:
+10:32:33.820 -> E (73247) task_wdt: CPU 0: IDLE
+10:32:33.820 -> E (73247) task_wdt: CPU 1: async_tcp
+10:32:33.820 -> E (73247) task_wdt: Aborting.
+
+Erklärung unter: 
+https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
+ESPAsyncWebServer callbacks prevent the watchdog timer from being reset while they run. This means they are not meant for doing any actual processing. 
+Register the request and defer processing to the main loop (or some other thread). 
+Have a look at this question for details.
+Das heißt aber auch, dass meine Steuerung über den Webserver kritisch ist, aber die Prozesse, die dann laufen kosten 
+kaum Zeit, außer das senden der Mails 
+IO-Operationen blocken, das könnte reichen, dass der watchdog Zeit bekommt
+Setze ich alle debug-Ausgabe auf on, wird die Mail gesendet
+
+Also setze ein Flag zum senden der Mail und sende sie aus loop heraus, das müsste doch reichen.
+ausprobieren, wird auch unter https://stackoverflow.com/questions/61561650/downloading-file-on-esp32-using-wificlient-client-read-fails-task-watchdog
+vorgeschlagen - dabei müsste das Problem doch das gleiche bleiben, auch loop hat eine priority von 1 sollte also damit auch verhindern
+dass das RTOS Rechenzeit bekommt. Nur die Tasks mit gleicher Prio werden doch nach einem TimeSlice Verfahren mit CPU-Zeit versorgt?
+Probieren wir es mal aus.
