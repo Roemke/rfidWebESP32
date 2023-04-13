@@ -251,6 +251,7 @@ template <typename T>class ObjectList {
       }
       return index;
     }
+    //damit ist die Funktion nicht mehr generisch sondern sehr speziell für das rfid-Objekt 
     int indexOfOnlyId(const T & o)
     {
       int index = -1;

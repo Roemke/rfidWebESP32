@@ -77,6 +77,11 @@ Rfid newRfid;
 #define SMTP_HOST "smtp.gmail.com"
 #define SMTP_PORT esp_mail_smtp_port_587
 //weitere Daten in credentials.h
+const int shortStringS = 32;
+const int longStringS = 128; 
+char actualMailSubject[shortStringS]="";
+char actualMailBody[longStringS]="";
+
 SMTPSession smtp;
 Session_Config config;
 
@@ -177,6 +182,16 @@ void sendMailMessage(char * subj, char * text)
   smtp.sendingResult.clear();
 }
 
+//wird spaeter in der loop gesendet
+void prepareMailMessage(const char * sub, const char * body)
+{
+  int anzS = sizeof(actualMailSubject);
+  int anzB = sizeof(actualMailBody);
+  strncpy(actualMailSubject,sub,anzS);
+  strncpy(actualMailBody,body,anzB);
+  actualMailSubject[anzS-1] = 0; 
+  actualMailBody[anzB-1] = 0; 
+}
 //------------------------------------------
 //viele Funktionen anonym, bzw. als Lambda Ausdruck, hier der Rest zum Server-Kram
 void notFound(AsyncWebServerRequest *request) {
@@ -223,8 +238,13 @@ void wsMessage(const char *message)
 
 void schalteRelais()
 {
+  String mailBody = "Das Relais wurde geschaltet, damit ist das Womo jetzt im Status: ";
   schlossStatusOpen = !schlossStatusOpen;
+  mailBody += schlossStatusOpen?  "geöffnet!" : "geschlossen";
+  
   savePreferences();
+  prepareMailMessage("ESP32 RFID: Relais geschaltet",mailBody.c_str()); 
+
   ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\"" + String(schlossStatusOpen) + "\"}" );
   wsMsgSerial("Geschaltet per webinterface oder Karte damit auch Statusänderung");
   digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
@@ -401,10 +421,10 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
           }
           else if (strcmp(doc["action"],"rebootESP")==0)
           {
-            wsMsgSerial("Versuchte eine Mail zu senden");
-            sendMailMessage("Subject not set", "First message, reset pressed");
-            //ESP.restart();
-            //wsMsgSerial("Restart of ESP");
+            prepareMailMessage("ESP32: reset",
+                               "reset Button is pressed from WebInterface, damit wird der ESP neu gestartet"); 
+            ESP.restart();
+            wsMsgSerial("Restart of ESP");
           }
           else if (strcmp(doc["action"],"resetMFRC")==0)
           {
@@ -925,5 +945,13 @@ void loop() {
 
   }
 
-    
+  //und check, ob wir eine Mail zu versenden haben, hier wg. der Probleme mit dem RTOS WatchDog
+  if (strlen(actualMailSubject) != 0)
+  {
+    String msg = "Sende Mail mit Subject ";
+    msg += actualMailSubject;
+    wsMsgSerial(msg.c_str());
+    sendMailMessage(actualMailSubject,actualMailBody);
+    actualMailSubject[0] = actualMailBody[0] = 0;
+  }    
 }
