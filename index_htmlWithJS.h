@@ -46,7 +46,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
           position: sticky;
           top: 0em;
           background-color: #fafaff;
-           grid-template-rows: 20%% 20%% 20%% 20%% 20%% ;
+          /*  grid-template-rows: 20%% 20%% 20%% 20%% 20%% ; sowieso automatisch */
            grid-template-columns: 30%% 1fr minmax(min-content,8em) 10%%;
            grid-auto-flow: column;
            padding-bottom: 1em; 
@@ -55,7 +55,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
       #controlContainer h1 {
         display: inline-block;
         grid-row-start: 1; /* beachte rasterlinien, nicht zeilen, oben unten ist linie */ 
-        grid-row-end  : 6; 
+        grid-row-end  : 7; 
       }
       #controlContainer h2 {
           font-size: 120%%;
@@ -64,12 +64,13 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
         grid-column-start: 3;
         margin-top: 0.5em;
       }
-      #controlContainer button:last-of-type {
-        margin-bottom: 0em; /*letzte bekommt einen, da margin-collapse nicht geht, klappt aber auch nicht wie gewünscht */
+      #controlContainer label {
+        grid-column-start: 3;
+        margin-top: 0.5em;
       }
       #status {
         padding: 1em; 
-        grid-row: 1 / 6 ; /* kurzform */ 
+        grid-row: 1 / 7 ; /* kurzform */ 
         grid-column-start:4; 
       }
       #sSymbol {
@@ -122,11 +123,15 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
       { 
          websocket = new WebSocket(gateway);
          websocket.onopen = () =>
-         {  
+         {  //hmm, die folgenden get Geschchen müssten doch unnoetig sein, der Server sendet das am Anfang 
+            
             websocket.send(JSON.stringify({'action':'getStartmeldungen'}));
             websocket.send(JSON.stringify({'action':'getRfidsNew'}));
             websocket.send(JSON.stringify({'action':'getRfidsOk'}));
             websocket.send(JSON.stringify({'action':'getStatus'}));
+            
+            //----------------------------
+            
             websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':0}));
 
             console.log('Connection opened');
@@ -248,6 +253,10 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
                   symbol.innerHTML = "&#128274;";                  
                 }
                 break;
+              case "mailEnabled":
+                let iMail = document.getElementById('iMail');                
+                iMail.checked = (data['mailEnabled'] == "1");
+                break;                
               default:
                 console.log("unknown action");
                 break;
@@ -301,6 +310,11 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
            websocket.send(JSON.stringify({'action':'schalte'}));
         });
         
+        var iMail = document.getElementById('iMail');
+        iMail.addEventListener("change",() =>
+        {
+           websocket.send(JSON.stringify({'action':'mailEnabled','mailEnabled':iMail.checked}));
+        });
         document.getElementById('bClear').addEventListener("click",() => 
         { 
           document.getElementById('iMessage').innerHTML = "";
@@ -337,6 +351,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
         <button type="button" id="bReset">reset MFC</button>
         <button type="button" id="bStatus">ändere Status</button>
         <button type="button" id="bSchalte">Schalte</button>      
+        <label for="iMail">Mail senden <input type="checkbox" id="iMail"></label>      
         <div id = 'status'>
           <h2>Status</h2>
           <span id="sText">geschlossen</span>

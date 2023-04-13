@@ -44,7 +44,7 @@
           position: sticky;
           top: 0em;
           background-color: #fafaff;
-           grid-template-rows: 20% 20% 20% 20% 20% ;
+           /*grid-template-rows: 20% 20% 20% 20% 20%; bei 5, aber es wird doch sowieso gleichmaessig verteilt */
            grid-template-columns: 30% 1fr minmax(min-content,8em) 10%;
            grid-auto-flow: column;
            padding-bottom: 1em; 
@@ -53,7 +53,7 @@
       #controlContainer h1 {
         display: inline-block;
         grid-row-start: 1; /* beachte rasterlinien, nicht zeilen, oben unten ist linie */ 
-        grid-row-end  : 6; 
+        grid-row-end  : 7; 
       }
       #controlContainer h2 {
           font-size: 120%;
@@ -62,12 +62,14 @@
         grid-column-start: 3;
         margin-top: 0.5em;
       }
-      #controlContainer button:last-of-type {
-        margin-bottom: 0em; /*letzte bekommt einen, da margin-collapse nicht geht, klappt aber auch nicht wie gewünscht */
+      #controlContainer label {
+        grid-column-start: 3;
+        margin-top: 0.5em;
       }
+      
       #status {
         padding: 1em; 
-        grid-row: 1 / 6 ; /* kurzform */ 
+        grid-row: 1 / 7 ; /* kurzform */ 
         grid-column-start:4; 
       }
       #sSymbol {
@@ -246,6 +248,10 @@
                   symbol.innerHTML = "&#128274;";                  
                 }
                 break;
+              case "enableMail":
+                let iMail = document.getElementById('iMail');                
+                iMail.checked = (data['enableMail'] == "1");
+                break;                
               default:
                 console.log("unknown action");
                 break;
@@ -299,6 +305,12 @@
            websocket.send(JSON.stringify({'action':'schalte'}));
         });
         
+        var iMail = document.getElementById('iMail');
+        iMail.addEventListener("change",() =>
+        {
+           websocket.send(JSON.stringify({'action':'enableMail','enableMail':iMail.checked}));
+        });
+        
         document.getElementById('bClear').addEventListener("click",() => 
         { 
           document.getElementById('iMessage').innerHTML = "";
@@ -335,6 +347,7 @@
         <button type="button" id="bReset">reset MFC</button>
         <button type="button" id="bStatus">ändere Status</button>
         <button type="button" id="bSchalte">Schalte</button>      
+        <label for="iMail">Mail senden <input type="checkbox" id="iMail"></label>      
         <div id = 'status'>
           <h2>Status</h2>
           <span id="sText">geschlossen</span>

@@ -50,6 +50,7 @@ byte trailerBlock   = 7; //in Block 7 muesste der Schluessel A AccesBytes Schlue
 byte dataBlock      = 4; //Dort Beginn der Daten von Sektor 1
 
 bool schlossStatusOpen = false;
+bool mailEnabled = false;
 
 AsyncWebServer server(80);
 //fuer den Websocket
@@ -443,6 +444,14 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             wsMsgSerial("Statusänderung ohne zu schalten");
             ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );
           }
+          else if (strcmp(doc["action"],"mailEnabled")==0)
+          {
+            mailEnabled = (bool) doc["mailEnabled"];
+            savePreferences();
+            const char * msg = mailEnabled ? "Mail enabled gesetzt" : "Mail disabled gesetzt"; 
+            wsMsgSerial(msg);
+            ws.textAll( "{\"action\":\"mailEnabled\",\"mailEnabled\":\""+ String(mailEnabled) + "\"}" );
+          }
           else if (strcmp(doc["action"],"schalte")==0)
           {
             schalteRelais();
@@ -476,7 +485,7 @@ void onWSEvent(AsyncWebSocket       *server,  //
      {
         case WS_EVT_CONNECT:
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-            //bei einem connect werden die Startmeldungen ausgegeben       
+            //bei einem connect werden die Startmeldungen ausgegeben, hier muesste ich doch schon die Daten senden können?       
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -491,11 +500,14 @@ void onWSEvent(AsyncWebSocket       *server,  //
 }
 
 Preferences prefs;
-const char * keySchlossStatusOpen ="kSOpen"; //max 13 chars 
+const char * keySchlossStatusOpen ="kSOpen"; //max 13 chars  
+const char * keyMailEnabled   ="kMEnable";
 void savePreferences()
 {
   String message="Status des Schlosses gespeichert";
   if (prefs.putBool(keySchlossStatusOpen, schlossStatusOpen) == 0)
+    message="Probleme beim Speichern des Schloss-Status";
+  if (prefs.putBool(keyMailEnabled, mailEnabled) == 0)
     message="Probleme beim Speichern des Schloss-Status";
   wsMsgSerial(message.c_str());    
 }
@@ -512,16 +524,27 @@ void mountFileSystem()
   }
   if (prefs.isKey(keySchlossStatusOpen)) 
   {
-    schlossStatusOpen =  prefs.getBool(keySchlossStatusOpen);
-    
-    ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );    
+    schlossStatusOpen =  prefs.getBool(keySchlossStatusOpen);    
   }
   else //schluesselanlegen und schreiben 
     prefs.putBool(keySchlossStatusOpen,schlossStatusOpen);
-  //gebe Info heraus 
+
+  if (prefs.isKey(keyMailEnabled)) 
+  {
+    mailEnabled =  prefs.getBool(keyMailEnabled);
+  }
+  else //schluesselanlegen und schreiben 
+    prefs.putBool(keyMailEnabled,mailEnabled);
+  //gebe Info heraus  
   String msg = "habe Preferences gelesen, habe freeEntries: " ;
   msg += prefs.freeEntries();
-  msg += "Status Lesen / Schreiben: "; 
+  msg += " -> Status Lesen / Schreiben gesetzt, "; 
+  startmeldungen.add(msg);
+  Serial.println(msg);
+  String s = mailEnabled ? "true" : "false";
+  msg = "mailEnabled: " + s;
+  s =  schlossStatusOpen ? "true" : "false";
+  msg += ", schlossStatusOpen: " + s;
   startmeldungen.add(msg);
   Serial.println(msg);
     
@@ -946,7 +969,7 @@ void loop() {
   }
 
   //und check, ob wir eine Mail zu versenden haben, hier wg. der Probleme mit dem RTOS WatchDog
-  if (strlen(actualMailSubject) != 0)
+  if (strlen(actualMailSubject) != 0 && mailEnabled) //nur hier werden mails gesendet, blocke es ggf. 
   {
     String msg = "Sende Mail mit Subject ";
     msg += actualMailSubject;
