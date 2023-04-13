@@ -157,9 +157,26 @@ void sendMailMessage(char * subj, char * text)
     ESP_MAIL_PRINTF("Connection error, Status Code: %d, Error Code: %d, Reason: %s", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
     return;
   }
+  if (!smtp.isLoggedIn())
+  {
+    Serial.println("\nNot yet logged in.");
+  }
+  else
+  {
+    if (smtp.isAuthenticated())
+      Serial.println("\nSuccessfully logged in.");
+    else
+      Serial.println("\nConnected with no Auth.");
+  }
 
-  
+  /* Start sending Email and close the session */
+  if (!MailClient.sendMail(&smtp, &message))
+    ESP_MAIL_PRINTF("Error, Status Code: %d, Error Code: %d, Reason: %s", smtp.statusCode(), smtp.errorCode(), smtp.errorReason().c_str());
+
+  // to clear sending result log
+  smtp.sendingResult.clear();
 }
+
 //------------------------------------------
 //viele Funktionen anonym, bzw. als Lambda Ausdruck, hier der Rest zum Server-Kram
 void notFound(AsyncWebServerRequest *request) {
