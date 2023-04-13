@@ -123,19 +123,11 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
       { 
          websocket = new WebSocket(gateway);
          websocket.onopen = () =>
-         {  //hmm, die folgenden get Geschchen müssten doch unnoetig sein, der Server sendet das am Anfang 
-            
-            websocket.send(JSON.stringify({'action':'getStartmeldungen'}));
-            websocket.send(JSON.stringify({'action':'getRfidsNew'}));
-            websocket.send(JSON.stringify({'action':'getRfidsOk'}));
-            websocket.send(JSON.stringify({'action':'getStatus'}));
-            
+         {  //hatte hier noch getAnfragen, an sich doch unnoetig, Ajax-Denke, der Server kann sie senden wenn ein client connected
+            //ja das klappt
             //----------------------------
-            
             websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':0}));
-
             console.log('Connection opened');
-            
          } 
          websocket.onclose = () => 
          {

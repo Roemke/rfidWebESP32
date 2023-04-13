@@ -123,14 +123,8 @@
          websocket = new WebSocket(gateway);
          websocket.onopen = () =>
          {  
-            websocket.send(JSON.stringify({'action':'getStartmeldungen'}));
-            websocket.send(JSON.stringify({'action':'getRfidsNew'}));
-            websocket.send(JSON.stringify({'action':'getRfidsOk'}));
-            websocket.send(JSON.stringify({'action':'getStatus'}));
             websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':0}));
-
-            console.log('Connection opened');
-            
+            console.log('Connection opened');   
          } 
          websocket.onclose = () => 
          {
@@ -248,9 +242,9 @@
                   symbol.innerHTML = "&#128274;";                  
                 }
                 break;
-              case "enableMail":
+              case "mailEnabled":
                 let iMail = document.getElementById('iMail');                
-                iMail.checked = (data['enableMail'] == "1");
+                iMail.checked = (data['mailEnabled'] == "1");
                 break;                
               default:
                 console.log("unknown action");
@@ -308,7 +302,7 @@
         var iMail = document.getElementById('iMail');
         iMail.addEventListener("change",() =>
         {
-           websocket.send(JSON.stringify({'action':'enableMail','enableMail':iMail.checked}));
+           websocket.send(JSON.stringify({'action':'mailEnabled','mailEnabled':iMail.checked}));
         });
         
         document.getElementById('bClear').addEventListener("click",() => 
