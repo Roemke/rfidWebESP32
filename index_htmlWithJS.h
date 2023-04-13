@@ -46,7 +46,7 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
           position: sticky;
           top: 0em;
           background-color: #fafaff;
-           grid-template-rows: 20%% 20%% 20%% 20%% 20%% ;
+          /*  grid-template-rows: 20%% 20%% 20%% 20%% 20%% ; sowieso automatisch */
            grid-template-columns: 30%% 1fr minmax(min-content,8em) 10%%;
            grid-auto-flow: column;
            padding-bottom: 1em; 
@@ -123,14 +123,8 @@ const char index_html[] PROGMEM = R"rawliteral(<!doctype html>
          websocket = new WebSocket(gateway);
          websocket.onopen = () =>
          {  
-            websocket.send(JSON.stringify({'action':'getStartmeldungen'}));
-            websocket.send(JSON.stringify({'action':'getRfidsNew'}));
-            websocket.send(JSON.stringify({'action':'getRfidsOk'}));
-            websocket.send(JSON.stringify({'action':'getStatus'}));
             websocket.send(JSON.stringify({'action':'keepWebServerAlive','time':0}));
-
-            console.log('Connection opened');
-            
+            console.log('Connection opened'); 
          } 
          websocket.onclose = () => 
          {

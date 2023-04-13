@@ -95,13 +95,9 @@ String processor(const String& var)
 }
 
 
+//--------------------websocket kram 
 
-void wsMsgSerial(const char *message)
-{
-  wsMessage(message);
-  Serial.println(message);
-}
-void wsMessage(const char *message)
+void wsMessage(const char *message,AsyncWebSocketClient * client = 0)
 { 
   const char * begin = "{\"action\":\"message\",\"text\":\"";
   const char * end = "\"}";
@@ -109,22 +105,20 @@ void wsMessage(const char *message)
   strcpy(str,begin);
   strcat(str,message);
   strcat(str,end);
+  if (!client)
   ws.textAll(str);
+  else
+    client->text(str);
+    
   delete [] str;
 }
 
-void schalteRelais()
+void wsMsgSerial(const char *message, AsyncWebSocketClient * client = 0)
 {
-  schlossStatusOpen = !schlossStatusOpen;
-  savePreferences();
-  ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\"" + String(schlossStatusOpen) + "\"}" );
-  wsMsgSerial("Geschaltet per webinterface oder Karte damit auch Statusänderung");
-  digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
-  delay(200);
-  digitalWrite(RELAIS_PIN,LOW);
+  wsMessage(message,client);
+  Serial.println(message);
 }
-
-void wsSendNewOkList()
+void sendRfidsOk(AsyncWebSocketClient * client = 0)
 {
   const int capacity = JSON_OBJECT_SIZE(3)+RFID_MAX*JSON_OBJECT_SIZE(3)+JSON_ARRAY_SIZE(RFID_MAX); //
   StaticJsonDocument<capacity> ans;
@@ -143,9 +137,89 @@ void wsSendNewOkList()
   int len = measureJson(ans)+16;//statt +1 +16
   char * buf = new char[len];
   serializeJson(ans,buf,len);
-  wsMsgSerial("Send authorized rfids from Server");
+  wsMsgSerial("Send authorized rfids from Server",client);
+  if (!client)
+  {  
   ws.textAll(buf);
+  }
+  else 
+    client->text(buf);
+
   delete [] buf;
+}
+
+void sendRfidsNew(AsyncWebSocketClient * client = 0)
+{
+    const int capacity = JSON_OBJECT_SIZE(3)+RFID_MAX*JSON_OBJECT_SIZE(3)+JSON_ARRAY_SIZE(RFID_MAX); //
+    StaticJsonDocument<capacity> ans;
+    ans["action"] = "newNewList";
+    JsonArray data = ans.createNestedArray("data");
+    int anzahl = rfidsNew.getDelimiterPos();
+    for (int i = 0; i < anzahl; ++i)
+    {
+      Rfid rfid = rfidsNew.getAt(i);
+      JsonObject o = data.createNestedObject();
+      o["rfid"]=rfid.id;
+      o["extraData"] = rfid.extraData;
+      o["owner"]=rfid.owner;   
+    }            
+    //serializeJson(ans,Serial); //das sieht gut aus
+    int len = measureJson(ans)+16;//statt +1 +16
+    char * buf = new char[len];
+    serializeJson(ans,buf,len);
+    wsMsgSerial("Send new rfids from Server",client);
+    if (!client)
+    {
+      ws.textAll(buf);
+    }
+    else 
+      client->text(buf);
+    delete [] buf;
+}
+
+//alle daten, die am Anfang gebraucht werden 
+void sendAvailableData(AsyncWebSocketClient * client, AsyncWebSocket *server)
+{
+   //sende die Daten an den Client
+   client->text(  "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}");
+   wsMessage(startmeldungen.htmlLines().c_str(),client);
+   String msg = String("WebSocket client ") + String(client->id()) + String(" connected from ") +  client->remoteIP().toString();
+   wsMsgSerial(msg.c_str());
+   msg = String("Anzahl Clients: ") + server->count();
+   wsMsgSerial(msg.c_str());
+   sendRfidsNew(client);
+   sendRfidsOk(client);  
+}
+
+//bei einem connect muesste ich doch eigentlich die notwendigen Daten an den speziellen client 
+//senden koennen. Ich war ein wenig in der "Ajax-Denke" gefangen - da hat der Client die Daten 
+//abgerufen, das ist hier aber unnoetig und fuehrt zu weiteren get-Geschichten im behandeln 
+//der events. 
+void onWSEvent(AsyncWebSocket       *server,  //
+             AsyncWebSocketClient *client,  //
+             AwsEventType          type,    // the signature of this function is defined
+             void                 *arg,     // by the `AwsEventHandler` interface
+             uint8_t              *data,    //
+             size_t                len)    
+{
+    // we are going to add here the handling of
+    // the different events defined by the protocol
+     switch (type) 
+     {
+        case WS_EVT_CONNECT:
+            //bei einem connect werden die Startmeldungen ausgegeben, hier muesste ich doch schon die Daten senden können?       
+            sendAvailableData(client, server);
+            break;
+        case WS_EVT_DISCONNECT:
+            Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            break;
+        case WS_EVT_DATA:
+            handleWebSocketMessage(arg, data, len);
+            break;
+        case WS_EVT_PONG:
+        case WS_EVT_ERROR:
+            break;
+     }
 }
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) 
 {
@@ -164,7 +238,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         //Serial.println("new");
         //rfidsNew.serialPrint();
         
-        StaticJsonDocument<capacity> doc;
+        StaticJsonDocument<capacity> doc; //hinweis: doc nur einmal verwenden 
         Serial.println("we have in WebSocketMessage: ");
         Serial.println(cData);
         
@@ -184,10 +258,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             wsMsgSerial("neuer TestEintrag");
             handleNewRFID(false); //false -> kein Zugriff auf die Karte, es ist ja keine da :-)
             //addRfidToNewList(newRfid); wird in handle... mit gemacht
-          }
-          else if (strcmp(doc["action"],"getStartmeldungen")==0) 
-          {
-            wsMessage(startmeldungen.htmlLines().c_str());
           }
           else if(strcmp(doc["action"],"clearNew") == 0)
           {
@@ -256,30 +326,12 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
               wsMessage("Authorisierte RFIDs entfernt, Liste leer");
           }*/
           else if (strcmp(doc["action"],"getRfidsOk") == 0)
-          {   //sende liste
-              wsSendNewOkList();
+          {   //sende liste, sollte nicht mehr benoetigt werden 
+            sendRfidsOk();
           }
           else if (strcmp(doc["action"],"getRfidsNew") == 0)
-          { //man sollte doc nicht wieder verwenden, das kann memory leaks geben 
-            StaticJsonDocument<capacity> ans;
-            ans["action"] = "newNewList";
-            JsonArray data = ans.createNestedArray("data");
-            int anzahl = rfidsNew.getDelimiterPos();
-            for (int i = 0; i < anzahl; ++i)
-            {
-              Rfid rfid = rfidsNew.getAt(i);
-              JsonObject o = data.createNestedObject();
-              o["rfid"]=rfid.id;
-              o["extraData"] = rfid.extraData;
-              o["owner"]=rfid.owner;   
-            }            
-            //serializeJson(ans,Serial); //das sieht gut aus
-            wsMsgSerial("Send new rfids from Server");
-            int len = measureJson(ans)+16;//statt +1 +16
-            char * buf = new char[len];
-            serializeJson(ans,buf,len);
-            ws.textAll(buf);
-            delete [] buf;
+          { //sollte nicht mehr benoetigt werden  
+            sendRfidsNew();
           }
           else if (strcmp(doc["action"],"keepWebServerAlive")==0) 
           {
@@ -301,10 +353,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
             mfrc522.PCD_Reset(); //ob das reicht?  
             mfrc522.PCD_Init();
             wsMsgSerial("Reset of MFRC 522");
-          }
-          else if (strcmp(doc["action"],"getStatus")==0)
-          {
-            ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\""+ String(schlossStatusOpen) + "\"}" );
           }
           else if (strcmp(doc["action"],"aendereStatus")==0)
           {
@@ -333,32 +381,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
         //Serial.println(" have rfid:" +  newRfidId + " and owner: " + newRfidOwner);
     }
 }
-void onWSEvent(AsyncWebSocket       *server,  //
-             AsyncWebSocketClient *client,  //
-             AwsEventType          type,    // the signature of this function is defined
-             void                 *arg,     // by the `AwsEventHandler` interface
-             uint8_t              *data,    //
-             size_t                len)    
-{
-    // we are going to add here the handling of
-    // the different events defined by the protocol
-     switch (type) 
-     {
-        case WS_EVT_CONNECT:
-            Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
-            //bei einem connect werden die Startmeldungen ausgegeben       
-            break;
-        case WS_EVT_DISCONNECT:
-            Serial.printf("WebSocket client #%u disconnected\n", client->id());
-            break;
-        case WS_EVT_DATA:
-            handleWebSocketMessage(arg, data, len);
-            break;
-        case WS_EVT_PONG:
-        case WS_EVT_ERROR:
-            break;
-     }
-}
+
 
 Preferences prefs;
 const char * keySchlossStatusOpen ="kSOpen"; //max 13 chars 
@@ -391,7 +414,11 @@ void mountFileSystem()
   //gebe Info heraus 
   String msg = "habe Preferences gelesen, habe freeEntries: " ;
   msg += prefs.freeEntries();
-  msg += "Status Lesen / Schreiben: "; 
+  msg += " -> Status Lesen / Schreiben gesetzt, "; 
+  startmeldungen.add(msg);
+  Serial.println(msg);
+  String s =  schlossStatusOpen ? "true" : "false";
+  msg += ", schlossStatusOpen: " + s;
   startmeldungen.add(msg);
   Serial.println(msg);
     
@@ -604,6 +631,16 @@ bool writeCardExtraData(Rfid & rfid)
 }
 
 //--------------------------------------------------------------
+void schalteRelais()
+{
+  schlossStatusOpen = !schlossStatusOpen;  
+  savePreferences();
+  ws.textAll( "{\"action\":\"setStatus\",\"schlossOpen\":\"" + String(schlossStatusOpen) + "\"}" );
+  wsMsgSerial("Geschaltet per webinterface oder Karte damit auch Statusänderung");
+  digitalWrite(RELAIS_PIN,HIGH); //200ms auf high müsste zum schalten reichen?
+  delay(200);
+  digitalWrite(RELAIS_PIN,LOW);
+}
 
 
 
@@ -669,7 +706,7 @@ void handleNewRFID(bool rwPhysicalCard) {
           rfidsOk.saveToFile(); //neue extradata auf Karte und in File
           rfidsOk.serialPrint();
           Serial.println(newRfid);   
-          wsSendNewOkList();
+          sendRfidsOk();
         }
         //triggerStartTime = millis();
         schalteRelais();
