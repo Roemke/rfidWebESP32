@@ -80,7 +80,9 @@ Rfid newRfid;
 
 //mail funktion -----------------------------------------------------------------------
 #define SMTP_HOST "smtp.gmail.com"
-#define SMTP_PORT esp_mail_smtp_port_587
+#define SMTP_PORT esp_mail_smtp_port_587 
+//obiges als konstante festgelegt seltsam
+
 //weitere Daten in credentials.h
 const int shortStringS = 32;
 const int longStringS = 128; 
