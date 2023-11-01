@@ -8,5 +8,6 @@
 #define AUTHOR_PASSWORD "<password>"
 /* Recipient email address */
 #define RECIPIENT_EMAIL "<recipient email here>"
+//key fuer die rfids
 const byte myKey[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 //oben einen eigenen waehlen

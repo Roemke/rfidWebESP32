@@ -1,5 +1,6 @@
 # rfidWebESP32
 
+# Achtung evlt Probleme mit ESPAsyncWebServer.h und ESPAsyncWebSrv.h in AsyncElegantOTA.h
 RFIDs lesen und Relais schalten
 RFIDs lesen und den Erlaubten hinufügen
 RFIDs aus Liste der Erlaubten entfernen 

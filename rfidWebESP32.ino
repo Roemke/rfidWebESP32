@@ -2,7 +2,10 @@
 #include <ArduinoOTA.h>
 #include <Preferences.h>        
 #include <AsyncTCP.h>
-#include <ESPAsyncWebSrv.h>
+#include <ESPAsyncWebServer.h>
+/*
+ *  Aber wieder umgestellt, Bibliothek lokal installiert, sonst immer ärger bei updates und diese müsste ja reichen 
+ */
 #include <AsyncElegantOTA.h>//mist, der braucht den ESPAsyncWebServer, habe mal in der Bibliothek angepasst, so dasss es auch mit ESPAsyncWebSrv.h geht
 #include <LittleFS.h> //gehoert seit 2.0 zum core, den habe ich, also sollte es kein Thema sein
 #include <ArduinoJson.h>   
@@ -13,6 +16,7 @@
 #include "credentials.h" //erstellen, s. credentials_template.h
 #include "ownLists.h"
 #include "index_htmlWithJS.h" //variable mit dem HTML/JS anteil
+
 /*
  * Leider probleme mit dem selbst gebastelten (nach diversen Tutorials) webserver
  * Erster Versuch noch mit eigenem Webserver, jedoch Fehlermeldungen im Betrieb, nach etwas Recherche stelle um
@@ -898,16 +902,22 @@ void setup() {
   rfidsOk.loadFromFile(); 
   startmeldungen.add("Rfids geladen");
 
+
   WiFi.begin(ssid, password);
   if (WiFi.waitForConnectResult() != WL_CONNECTED) //waitForConnect lässt sich viel Zeit
   {
-    Serial.printf("WiFi Failed! - second try \n");
-    startmeldungen.add("WiFi zweiter Versuch");
-    WiFi.disconnect(true);  // Disconnect from the network
-    ssid = mySSID2;
-    password = myPASSWORD2;
-    WiFi.begin(ssid, password);
-    WiFi.waitForConnectResult();
+    if (realBetrieb)
+      Serial.printf("WiFi failed - typ accesspoint");
+    else
+    {
+      Serial.printf("WiFi Failed! - second try \n");
+      startmeldungen.add("WiFi zweiter Versuch");
+      WiFi.disconnect(true);  // Disconnect from the network
+      ssid = mySSID2;
+      password = myPASSWORD2;
+      WiFi.begin(ssid, password);
+      WiFi.waitForConnectResult();
+    }
   }
   //auch zweites Netz nicht da, setze eigenen AP auf - ich hatte zu Hause in Abhängigkeit vom Router massive 
   //Probleme in das Netz zu kommen
